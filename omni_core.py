@@ -298,6 +298,7 @@ def sample_omni(
     noise_mode="brownian",
     cfg_pp=False,
     cfg_pp_strength=0.5,
+    pece=False,
     corrector="first",
     final_extrapolate=0.0,
     x0_average="ab2",
@@ -377,6 +378,11 @@ def sample_omni(
     # holds for both families, but it has no exponential linearisation and no
     # OU noise term, so it is only used for the deterministic non-CFG++ case.
     use_ab = (str(integrator).lower() == "ab") and eta <= _ETA_EPS and not cfg_pp
+    # PECE: evaluate each node at the *end* of the previous step and reuse that
+    # evaluation, so one model call serves as both the corrector of step i and
+    # the starting derivative of step i+1 (the UniPC-fm arrangement).
+    pece_ok = bool(pece) and not use_ab
+    carried = None
 
     for i in comfy.utils.model_trange(n_steps, disable=disable):
         sigma_s = raw[i]
@@ -384,8 +390,10 @@ def sample_omni(
         lam_s = lams[i]
 
         # ---- churn (Karras) ----
+        # churn perturbs x *before* the evaluation; PECE has already evaluated
+        # this node at the end of the previous step, so the two are exclusive
         sigma_eval = sigma_s
-        if s_churn > 0.0 and s_tmin <= sigma_s <= s_tmax:
+        if s_churn > 0.0 and not pece_ok and s_tmin <= sigma_s <= s_tmax:
             gamma = min(s_churn / max(n_steps, 1), 2 ** 0.5 - 1.0)
             sigma_eval = sigma_s * (gamma + 1.0)
             if gamma > 0.0:
@@ -394,7 +402,12 @@ def sample_omni(
                 )
 
         # ---- model evaluation ----
-        denoised = model(x, sigma_eval * s_in, **extra_args)
+        # PECE: reuse the evaluation made at the end of the previous step (it is
+        # exactly at this node's sigma), so each node costs one call in total.
+        if pece_ok and carried is not None:
+            denoised = carried
+        else:
+            denoised = model(x, sigma_eval * s_in, **extra_args)
         if callback is not None:
             callback(
                 {
@@ -421,6 +434,7 @@ def sample_omni(
             x = denoised
             prev_denoised2, prev_denoised = prev_denoised, denoised
             prev_lam = lam_s
+            carried = None  # force a fresh evaluation at the next node
             continue
 
         order_used = _resolve_order(order, i, n_steps, lower_order_to_end)
@@ -515,18 +529,34 @@ def sample_omni(
                 out = out + noise_coeff * s_noise * _color_noise(draw, noise_color)
             return out
 
-        # ---- optional trapezoidal corrector (one extra NFE) ----
-        # Not used with CFG++: the corrector refines the guided x0 but cannot
-        # re-evaluate the unconditional prediction at the predicted state, so it
-        # would shift the effective guidance.
-        if i in corr_steps and not cfg_pp:
+        # ---- PECE: predictor, then one evaluation that is reused next step ----
+        if pece_ok:
             x_pred = advance(x0_eff, with_noise=False)
-            x0_check = model(x_pred, sig_geo[i + 1] * s_in, **extra_args)
-            x0_eff = 0.5 * (x0_eff + x0_check)
-            # the extra evaluation must not leak its (later) uncond into history
-            uncond_denoised = u_this_step
+            if noise_coeff > 0.0 and s_noise > 0.0:
+                # stochastic step: the reused evaluation must be taken at the
+                # actual (noisy) state, so no trapezoidal correction here
+                x = advance(x0_eff, with_noise=True)
+                if sig_geo[i + 1] > 0.0:
+                    carried = model(x, sig_geo[i + 1] * s_in, **extra_args)
+            else:
+                e_next = model(x_pred, sig_geo[i + 1] * s_in, **extra_args)
+                # trapezoidal average of the two node evaluations: same order as
+                # the AB2 value but averaged with a real evaluation, for free
+                x = advance(0.5 * (denoised + e_next), with_noise=False)
+                carried = e_next
+        else:
+            # ---- optional trapezoidal corrector (one extra NFE) ----
+            # Not used with CFG++: the corrector refines the guided x0 but cannot
+            # re-evaluate the unconditional prediction at the predicted state, so
+            # it would shift the effective guidance.
+            if i in corr_steps and not cfg_pp:
+                x_pred = advance(x0_eff, with_noise=False)
+                x0_check = model(x_pred, sig_geo[i + 1] * s_in, **extra_args)
+                x0_eff = 0.5 * (x0_eff + x0_check)
+                # the extra evaluation must not leak its (later) uncond into history
+                uncond_denoised = u_this_step
 
-        x = advance(x0_eff, with_noise=True)
+            x = advance(x0_eff, with_noise=True)
 
         # ---- history ----
         hist_x0 = [denoised] + hist_x0[:1]
@@ -553,6 +583,7 @@ DEFAULTS = dict(
     noise_mode="brownian",
     cfg_pp=False,
     cfg_pp_strength=0.5,
+    pece=False,
     corrector="first",
     final_extrapolate=0.0,
     x0_average="ab2",
@@ -566,6 +597,7 @@ VARIANTS = {
     "omni_hybrid_sde": {"eta": 0.5},         # mid-trajectory stochasticity
     "omni_hybrid_cfg_pp": {"cfg_pp": True},  # CFG++ guidance
 }
+
 
 
 
