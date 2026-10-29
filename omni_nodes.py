@@ -1,4 +1,4 @@
-"""ComfyUI node + sampler-name registration for the Omni-Hybrid sampler."""
+﻿"""ComfyUI node + sampler-name registration for the Omni-Hybrid sampler."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import functools
 import comfy.model_sampling
 import comfy.sample
 import comfy.samplers
+import comfy.utils
 import comfy.k_diffusion.sampling as kds
 
 from .omni_core import AB_PRESETS, DEFAULTS, VARIANTS, sample_omni
@@ -275,7 +276,24 @@ class OmniKSampler:
         if corr == "auto":
             corr = "none" if flow else "first"
 
-        noise = comfy.sample.prepare_noise(latent_image["samples"], seed)
+        # Mirror nodes.py::common_ksampler: adapt an empty latent to this model's
+        # latent format (channel count / 5-D axis for video formats / downscale
+        # ratios). Without this a Krea2 model receives an unadapted latent and
+        # dies in its patch-embedding ("mat1 and mat2 shapes cannot be multiplied").
+        import latent_preview
+
+        latent = dict(latent_image)
+        latent_samples = comfy.sample.fix_empty_latent_channels(
+            model,
+            latent["samples"],
+            latent.get("downscale_ratio_spacial", None),
+            latent.get("downscale_ratio_temporal", None),
+        )
+        batch_inds = latent["batch_index"] if "batch_index" in latent else None
+        noise = comfy.sample.prepare_noise(latent_samples, seed, batch_inds)
+        noise_mask = latent.get("noise_mask", None)
+        callback = latent_preview.prepare_callback(model, steps)
+
         ks = comfy.samplers.KSampler(
             model, steps=steps, device=model.load_device, sampler="euler", scheduler=scheduler,
             denoise=denoise, model_options=model.model_options,
@@ -283,8 +301,9 @@ class OmniKSampler:
         sampler = comfy.samplers.KSAMPLER(functools.partial(sample_omni, **opts))
         samples = comfy.samplers.sample(
             model, noise, positive, negative, cfg, model.load_device, sampler, ks.sigmas,
-            model_options=model.model_options, latent_image=latent_image["samples"],
-            disable_pbar=False, seed=seed,
+            model_options=model.model_options, latent_image=latent_samples,
+            denoise_mask=noise_mask, callback=callback,
+            disable_pbar=not comfy.utils.PROGRESS_BAR_ENABLED, seed=seed,
         )
 
         n = max(len(ks.sigmas) - 1, 1)
@@ -302,7 +321,11 @@ class OmniKSampler:
             f"evals~{evals + extra} | " + ", ".join(f"{k}={v}" for k, v in sorted(delta.items()))
         )
         print(f"[OmniKSampler] {summary}")
-        return ({"samples": samples}, summary)
+        out = dict(latent)
+        out.pop("downscale_ratio_spacial", None)
+        out.pop("downscale_ratio_temporal", None)
+        out["samples"] = samples
+        return (out, summary)
 
 
 NODE_CLASS_MAPPINGS = {"OmniSamplerSelect": OmniSamplerSelect, "OmniKSampler": OmniKSampler}
@@ -310,5 +333,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "OmniSamplerSelect": "Omni-Hybrid Sampler (select)",
     "OmniKSampler": "Omni-Hybrid KSampler (A/B)",
 }
+
 
 

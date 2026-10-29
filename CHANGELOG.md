@@ -1,4 +1,22 @@
-﻿## v1.4 — 2026-10-29
+﻿## v1.4.1 — 2026-10-29
+
+### Fixed
+
+* **`OmniKSampler` crashed on Krea2** (`mat1 and mat2 shapes cannot be
+  multiplied (8960x16 and 64x6144)` in `krea2/model.py::self.first`). The node
+  passed the latent straight to the sampler; `nodes.py::common_ksampler` first
+  calls `comfy.sample.fix_empty_latent_channels`, which adapts an empty latent
+  to the model (4 -> 16 channels AND a 5-D axis for `Wan21`, 4 -> 128 channels
+  for `Flux2`). Without it the model received an unadapted latent.
+* The node now mirrors `common_ksampler` in full: latent adaptation,
+  `batch_index`, `noise_mask`, `latent_preview` callback (previews work again),
+  `PROGRESS_BAR_ENABLED`, and it returns the latent dict copy with the
+  downscale-ratio keys removed.
+
+Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
+((1,4,64,64) -> (1,128,64,64)); both finite, correct shape.
+`tools/test_node_emptylatent.py` is the regression test.
+## v1.4 — 2026-10-29
 
 ### Added
 
@@ -133,6 +151,7 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+
 
 
 
