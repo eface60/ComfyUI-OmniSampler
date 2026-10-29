@@ -238,5 +238,6 @@ git diff v1.0 -- omni_core.py    # see what changed since
 ```
 
 `outputs/` (benchmark renders) and `__pycache__/` are ignored.
-`CHANGELOG.md` records what changed in each version and why.
+`CHANGELOG.md records what changed in each version and why, EXPERIMENTS.md\nrecords the leads that were tested and rejected (with numbers).
+
 
