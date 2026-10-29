@@ -275,3 +275,18 @@ On these models omni is roughly at euler at 6-10 steps and clearly ahead at
 16+ (MOSS@16: +0.010), while `dpmpp_2m` trails both (0.783/0.845 on MOSS at
 10/16 steps) — its eps-only step size is the reason.
 
+### The corrector is model-dependent (honest caveat)
+
+`auto` resolves by family, which is the expectation-weighted choice, not a law:
+
+| model | 8-10 steps, corr on vs off | verdict |
+|---|---|---|
+| Krea2 turbo | 0.8927 vs 0.9059 (8) / 0.8829 vs 0.9001 (10) | off wins clearly |
+| MOSS | 0.7901 vs 0.8149 (10) / 0.8875 vs 0.9037 (16) | off wins clearly |
+| Anima (Qwen 0.6B TE) | 0.9893 vs 0.9858 (8) / 0.9947 vs 0.9893 (12) | on wins slightly |
+| SDXL (eps) | 0.7441 vs 0.6985 (12) | on wins clearly |
+
+So `auto` = `none` for flow loses ~0.004 on Anima but gains 0.016-0.025 on
+Krea2/MOSS. If you sample Anima at 8-12 steps and want that last 0.004,
+`corrector="first"` is the better setting for it.
+

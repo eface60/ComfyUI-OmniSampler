@@ -61,12 +61,13 @@ FAMILIES = {
     ),
     "anima": dict(
         unet=os.path.join(DM, "anima", "anima-base-v1.0.safetensors"),
-        te=[os.path.join(TE, "qwen_3_06b_base.safetensors"), os.path.join(TE, "t5xxl_fp8_e4m3fn.safetensors")],
+        te=[os.path.join(TE, "qwen_3_06b_base.safetensors")],
         clip_type="COSMOS",
-        vae=os.path.join(VAE_DIR, "hdrVAEAnimaKrea2QWEN_bf16.safetensors"),
-        cfg=3.5,
+        vae=os.path.join(VAE_DIR, "wan_2.1_vae.safetensors"),
+        cfg=4.0,
         res=1024,
         vae_channels=None,
+        temporal=True,
     ),
 }
 
@@ -146,8 +147,11 @@ def main():
     res = args.res or FAMILIES[args.family]["res"]
     pos = clip.encode_from_tokens_scheduled(clip.tokenize(PROMPT))
     neg = clip.encode_from_tokens_scheduled(clip.tokenize(NEG))
-    latent = torch.zeros([1, lf.latent_channels, res // lf.spacial_downscale_ratio,
-                          res // lf.spacial_downscale_ratio])
+    hw = res // lf.spacial_downscale_ratio
+    if FAMILIES[args.family].get("temporal"):
+        latent = torch.zeros([1, lf.latent_channels, 1, hw, hw])
+    else:
+        latent = torch.zeros([1, lf.latent_channels, hw, hw])
     it = comfy.model_management.intermediate_device()
 
     def render(steps, name, opts=None):
@@ -193,6 +197,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 

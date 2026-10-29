@@ -1,5 +1,9 @@
 ﻿## v1.1 — 2026-10-29
 
+Anima (Cosmos-derived, Qwen 0.6B TE only) measured too: the step-0 corrector
+*helps* there by ~0.004, against -0.016..-0.025 on Krea2/MOSS, so corrector=`auto`
+stays the expectation-weighted default and the caveat is documented in README.
+
 Measured on modern flow-match models (Krea2 turbo int8 @ cfg 1, MOSS image
 int8 @ cfg 3.5, PixelDiT bf16) in addition to the analytic harness and SDXL.
 
@@ -63,4 +67,5 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+
 
