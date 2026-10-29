@@ -1,4 +1,28 @@
-﻿## v1.1 — 2026-10-29
+﻿## v1.2 — 2026-10-29
+
+### Fixed
+
+* **Churn geometry.** When `s_churn > 0` the state is re-noised to
+  `sigma_hat = sigma*(1+gamma)` and the model is evaluated there, but the step
+  still integrated from the *original* sigma, so the injected noise was not
+  removed. Steps now start from `sigma_hat` (`sig_from`/`lam_from`), matching
+  k-diffusion's `dt = sigma_next - sigma_hat`. Affects churn users only
+  (default `s_churn=0` is byte-identical).
+
+### Added
+
+* `churn_mode="gamma"`: comfyui-ppm's `euler_gamma` law
+  (`sigma_hat = sigma + diff*sigma/sigma_max`, skipped above `sigma_max`).
+  Verified against ppm's `sample_euler_gamma` to 2.4e-7 with the same seed.
+
+### Findings
+
+* ppm's gamma churn is family-dependent by construction: it fires on 18/20
+  steps on an SDXL-class schedule (sigma_max 14.6) but 0/8 on a flow schedule
+  (sigma_max 1.0) at its default `s_sigma_diff=2.0`.
+* ppm's `cfg_pp` branch in that sampler is eps-only (`alpha_t == 1`), so on flow
+  models it over-guides: MOSS cfg 3.5 @12 steps 0.580 vs 0.815 for plain omni.
+## v1.1 — 2026-10-29
 
 Anima (Cosmos-derived, Qwen 0.6B TE only) measured too: the step-0 corrector
 *helps* there by ~0.004, against -0.016..-0.025 on Krea2/MOSS, so corrector=`auto`
@@ -67,5 +91,6 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+
 
 

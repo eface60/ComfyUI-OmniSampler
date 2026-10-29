@@ -1,4 +1,4 @@
-﻿"""Omni-Hybrid sampler: one integration engine, per-regime components.
+"""Omni-Hybrid sampler: one integration engine, per-regime components.
 
 Geometry that holds for BOTH model families ComfyUI supports
 (epsilon/v-prediction and flow matching):
@@ -279,6 +279,7 @@ def sample_omni(
     eta_softness=0.10,
     lower_order_to_end=1,
     s_churn=0.0,
+    churn_mode="karras",
     s_tmin=0.0,
     s_tmax=float("inf"),
     noise_mode="brownian",
@@ -375,15 +376,35 @@ def sample_omni(
         sigma_t = raw[i + 1]
         lam_s = lams[i]
 
-        # ---- churn (Karras) ----
+        # ---- churn ----
+        # "karras": relative gamma (Karras eq. 8), capped at sqrt(2)-1
+        # "gamma":  comfyui-ppm's euler_gamma law - an absolute offset
+        #           proportional to sigma/sigma_max, skipped when it would
+        #           exceed sigma_max (which is what ppm does at the first step)
         sigma_eval = sigma_s
         if s_churn > 0.0 and s_tmin <= sigma_s <= s_tmax:
-            gamma = min(s_churn / max(n_steps, 1), 2 ** 0.5 - 1.0)
-            sigma_eval = sigma_s * (gamma + 1.0)
-            if gamma > 0.0:
-                x = x + torch.randn_like(x) * (
-                    s_noise * math.sqrt(max(0.0, sigma_eval ** 2 - sigma_s ** 2))
-                )
+            if str(churn_mode) == "gamma":
+                sigma_hat = sigma_s + s_churn * (sigma_s / max(raw[0], 1e-9))
+                if sigma_t > 0.0 and sigma_hat <= raw[0]:
+                    sigma_eval = sigma_hat
+                    # ppm subtracts the re-noise draw; matching its sign keeps
+                    # seeds interchangeable with euler_gamma
+                    x = x - torch.randn_like(x) * (
+                        s_noise * math.sqrt(max(0.0, sigma_eval ** 2 - sigma_s ** 2))
+                    )
+            else:
+                gamma = min(s_churn / max(n_steps, 1), 2 ** 0.5 - 1.0)
+                sigma_eval = sigma_s * (gamma + 1.0)
+                if gamma > 0.0:
+                    x = x + torch.randn_like(x) * (
+                        s_noise * math.sqrt(max(0.0, sigma_eval ** 2 - sigma_s ** 2))
+                    )
+
+        # churn moved the state to sigma_eval, so the step must start there
+        # (comfy/k-diffusion use dt = sigma_next - sigma_hat for the same reason)
+        sig_from = clamp_sigma(sigma_eval, flow) if sigma_eval != sigma_s else sig_geo[i]
+        lam_from = half_log_snr(sig_from, flow)
+        alpha_from = alpha_of(sig_from, flow)
 
         # ---- model evaluation ----
         denoised = model(x, sigma_eval * s_in, **extra_args)
@@ -408,7 +429,7 @@ def sample_omni(
             )
             break
 
-        h = lams[i + 1] - lam_s
+        h = lams[i + 1] - lam_from
         if h <= 0.0 or not math.isfinite(h):
             x = denoised
             prev_denoised2, prev_denoised = prev_denoised, denoised
@@ -451,7 +472,7 @@ def sample_omni(
         h_prev = 0.0
         extrapolate = False
         if order_used >= 2 and hist_x0 and prev_lam is not None:
-            h_prev = lam_s - prev_lam
+            h_prev = lam_from - prev_lam
             # stability gate: a much longer current step than the previous one
             # makes the linear history fit unreliable (amplification ~ h/h_prev)
             unstable = h_prev <= 0.0
@@ -464,7 +485,7 @@ def sample_omni(
             else:
                 extrapolate = True
                 if x0_average == "exact":
-                    kappa = kernel_moment1(h, eta_i, lam_s, flow, sig_geo[i], sig_geo[i + 1])
+                    kappa = kernel_moment1(h, eta_i, lam_from, flow, sig_from, sig_geo[i + 1])
                 else:
                     kappa = 0.5 * h * (1.0 + eta_i)
                 x0_eff = denoised + kappa * (denoised - hist_x0[0]) / h_prev
@@ -487,13 +508,13 @@ def sample_omni(
             u_eff = u_this_step
             if extrapolate and hist_u:
                 u_eff = u_this_step + kappa * (u_this_step - hist_u[0]) / h_prev
-            x_base = x - alphas[i] * u_eff
+            x_base = x - alpha_from * u_eff
             coef_x0 = 1.0
         else:
             x_base = x
             coef_x0 = -math.expm1(-h * (1.0 + eta_i))
 
-        decay = (sig_geo[i + 1] / sig_geo[i]) * math.exp(-eta_i * h)
+        decay = (sig_geo[i + 1] / sig_from) * math.exp(-eta_i * h)
         noise_coeff = (
             sig_geo[i + 1] * math.sqrt(max(0.0, -math.expm1(-2.0 * eta_i * h)))
             if eta_i > 0.0
@@ -524,7 +545,7 @@ def sample_omni(
         if u_this_step is not None:
             hist_u = [u_this_step] + hist_u[:1]
         prev_denoised2, prev_denoised = prev_denoised, denoised
-        prev_lam = lam_s
+        prev_lam = lam_from
 
     return x
 
@@ -538,6 +559,7 @@ DEFAULTS = dict(
     eta_softness=0.10,
     lower_order_to_end=1,
     s_churn=0.0,
+    churn_mode="karras",
     s_tmin=0.0,
     s_tmax=float("inf"),
     noise_mode="brownian",
@@ -556,6 +578,9 @@ VARIANTS = {
     "omni_hybrid_sde": {"eta": 0.5},         # mid-trajectory stochasticity
     "omni_hybrid_cfg_pp": {"cfg_pp": True},  # CFG++ guidance
 }
+
+
+
 
 
 

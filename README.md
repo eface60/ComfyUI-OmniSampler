@@ -290,3 +290,27 @@ So `auto` = `none` for flow loses ~0.004 on Anima but gains 0.016-0.025 on
 Krea2/MOSS. If you sample Anima at 8-12 steps and want that last 0.004,
 `corrector="first"` is the better setting for it.
 
+## Churn modes (v1.2)
+
+`s_churn` re-noises the state before the model call (a stochasticity dial, not an
+accuracy knob). `churn_mode` picks the law:
+
+* `karras` (default): relative `sigma_hat = sigma*(1+gamma)`, `gamma` capped at
+  `sqrt(2)-1`, like `sample_euler`/`sample_heun`.
+* `gamma`: comfyui-ppm's `euler_gamma` law, `sigma_hat = sigma + s_sigma_diff*sigma/sigma_max`,
+  skipped when `sigma_hat > sigma_max`. Verified to reproduce ppm's
+  `sample_euler_gamma` to **2.4e-7** (same seed, eps model).
+
+A caveat worth knowing if you come from `euler_gamma`: its guard makes it
+family-dependent. With `sigma_max = 1` (every flow schedule) a diff of 2.0 fires
+on **0/8** steps of a `simple` 8-step schedule, while on an SDXL-class schedule
+(`sigma_max = 14.6`) it fires on **18/20**. So on modern flow models "euler gamma"
+is effectively plain Euler, and what remains is its CFG++ branch — which is
+**eps-only** (`alpha_t == 1`) and therefore acts as extra guidance on flow models.
+Measured on MOSS at cfg 3.5, 12 steps: plain euler_gamma 0.826, euler_gamma+CFG++
+0.580, omni 0.815. `omni_hybrid` with `cfg_pp` off is the sane choice there.
+
+The same review found and fixed a real bug: when churn moved the state to
+`sigma_hat`, the step still integrated from the original sigma, so the injected
+noise was never removed. Steps now start at `sigma_hat`, matching k-diffusion.
+

@@ -111,6 +111,8 @@ VARIANTS = {
     "nc_exact": ("omni_hybrid", {"corrector": "none", "x0_average": "exact"}),
     "nc_sde": ("omni_hybrid", {"corrector": "none", "eta": 0.3}),
     "corr1": ("omni_hybrid", {"corrector": "first"}),
+    "gamma": ("omni_hybrid", {"s_churn": 2.0, "churn_mode": "gamma"}),
+    "gamma_cfgpp": ("omni_hybrid", {"s_churn": 2.0, "churn_mode": "gamma", "cfg_pp": True, "cfg_pp_strength": 1.0}),
     "nc_cfgpp_s1": ("omni_hybrid", {"corrector": "none", "cfg_pp": True, "cfg_pp_strength": 1.0}),
 }
 
@@ -197,6 +199,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
