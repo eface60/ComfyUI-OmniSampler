@@ -1,4 +1,4 @@
-"""Omni-Hybrid sampler: one integration engine, per-regime components.
+﻿"""Omni-Hybrid sampler: one integration engine, per-regime components.
 
 Geometry that holds for BOTH model families ComfyUI supports
 (epsilon/v-prediction and flow matching):
@@ -285,7 +285,7 @@ def sample_omni(
     noise_mode="brownian",
     cfg_pp=False,
     cfg_pp_strength=0.5,
-    corrector="auto",
+    corrector="first",
     final_extrapolate=0.0,
     x0_average="ab2",
     min_step_ratio=0.5,
@@ -565,7 +565,7 @@ DEFAULTS = dict(
     noise_mode="brownian",
     cfg_pp=False,
     cfg_pp_strength=0.5,
-    corrector="auto",
+    corrector="first",
     final_extrapolate=0.0,
     x0_average="ab2",
     min_step_ratio=0.5,
@@ -578,6 +578,7 @@ VARIANTS = {
     "omni_hybrid_sde": {"eta": 0.5},         # mid-trajectory stochasticity
     "omni_hybrid_cfg_pp": {"cfg_pp": True},  # CFG++ guidance
 }
+
 
 
 

@@ -1,4 +1,4 @@
-"""ComfyUI node + sampler-name registration for the Omni-Hybrid sampler."""
+﻿"""ComfyUI node + sampler-name registration for the Omni-Hybrid sampler."""
 
 from __future__ import annotations
 
@@ -57,10 +57,9 @@ class OmniSamplerSelect:
                     {"default": 1.0, "min": 0.0, "max": 100.0, "step": 0.01, "round": False},
                 ),
                 "corrector": (
-                    ["auto", "first", "none", "last", "first_last"],
+                    ["first", "auto", "none", "last", "first_last"],
                     {
-                        "tooltip": "Trapezoidal corrector on selected steps (one extra model call each). "
-                                   "auto = first for eps models, none for flow models (measured).",
+                        "tooltip": "Trapezoidal corrector on selected steps (one extra model call each). "\n                                   "auto = first for eps, none for flow (heuristic; the flow evidence "\n                                   "was invalidated by mode bifurcation, see CORRECTIONS.md).",
                     },
                 ),
                 "lower_order_to_end": (
@@ -203,4 +202,5 @@ def register_samplers():
 
 NODE_CLASS_MAPPINGS = {"OmniSamplerSelect": OmniSamplerSelect}
 NODE_DISPLAY_NAME_MAPPINGS = {"OmniSamplerSelect": "Omni-Hybrid Sampler (select)"}
+
 

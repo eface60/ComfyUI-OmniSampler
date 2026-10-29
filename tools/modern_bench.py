@@ -118,17 +118,23 @@ VARIANTS = {
 
 
 def to_hwc(decoded):
-    """(B,C,H,W) or video (B,C,T,H,W) or (B,H,W,C) -> single (H,W,3) tensor."""
-    img = decoded
-    if img.dim() == 5:            # video VAE (Wan21): take the first frame
-        img = img[:, :, 0]
-    img = img.detach().float().cpu()[0]
-    img = ((img + 1.0) / 2.0).clamp(0, 1)
-    if img.dim() == 4:            # (C,T,H,W) leftover
-        img = img[:, 0]
-    if img.shape[0] == 3:
-        img = img.permute(1, 2, 0)
-    return img.permute(2, 0, 1).unsqueeze(0)
+    """Decoded VAE output -> (1,3,H,W) in [0,1].
+
+    Handles every layout the installed VAEs produce: (B,C,H,W) for 2-D VAEs,
+    (B,C,T,H,W) for video VAEs, and Wan's (B,T,H,W,C).  The earlier version
+    indexed axis 2 assuming (B,C,T,H,W) and produced 768x1 images for Wan.
+    """
+    x = decoded.detach().float().cpu()
+    while x.dim() > 3 and x.shape[0] == 1:
+        x = x[0]
+    if x.dim() == 4:                      # (T,H,W,C) or (C,T,H,W)
+        x = x[0] if x.shape[-1] == 3 else x[:, 0]
+    if x.dim() != 3:
+        raise RuntimeError(f"unexpected decode shape {tuple(decoded.shape)}")
+    if x.shape[-1] != 3:                  # CHW -> HWC
+        x = x.permute(1, 2, 0)
+    x = ((x + 1.0) / 2.0).clamp(0, 1)
+    return x.permute(2, 0, 1).unsqueeze(0)
 
 
 def main():
@@ -150,7 +156,9 @@ def main():
     pos = clip.encode_from_tokens_scheduled(clip.tokenize(PROMPT))
     neg = clip.encode_from_tokens_scheduled(clip.tokenize(NEG))
     hw = res // lf.spacial_downscale_ratio
-    if FAMILIES[args.family].get("temporal"):
+    # video latent formats (Wan21: Krea2, Anima) need a temporal axis; the VAE
+    # silently mis-decodes a 4-D latent, which is how 768x61 images happened
+    if getattr(lf, "latent_dimensions", 2) == 3:
         latent = torch.zeros([1, lf.latent_channels, 1, hw, hw])
     else:
         latent = torch.zeros([1, lf.latent_channels, hw, hw])
@@ -199,6 +207,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 

@@ -1,4 +1,27 @@
-﻿## v1.2 — 2026-10-29
+﻿## v1.3 — 2026-10-29
+
+### Fixed (measurement, not sampler)
+
+* `tools/modern_bench.py` produced 768x61 (Krea2) and 768x1 (Anima) images: the
+  Wan VAE returns `(B,T,H,W,C)` and `to_hwc` indexed the height axis, and Krea2
+  was fed a 4-D latent although `Wan21` needs 5-D. Fixed; previews assert a
+  square shape now.
+* Discovered that these models have **no converged high-NFE reference**: the
+  same seed at 40 vs 80 steps lands in a different composition (SDXL), and
+  40->60 steps differ by 7-27% relative L2. Reference-based accuracy numbers on
+  real models are therefore invalid. See CORRECTIONS.md.
+
+### Changed
+
+* `corrector` default reverted to `first` (v1.0 behaviour). `auto` remains as a
+  documented heuristic; its flow-model evidence did not survive the metric
+  correction.
+
+### Added
+
+* `tools/latent_bench.py` (latent-space comparison, decoded previews optional)
+  and `CORRECTIONS.md`.
+## v1.2 — 2026-10-29
 
 ### Fixed
 
@@ -91,6 +114,7 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+
 
 
 
