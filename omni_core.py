@@ -1,4 +1,4 @@
-﻿"""Omni-Hybrid sampler: one integration engine, per-regime components.
+"""Omni-Hybrid sampler: one integration engine, per-regime components.
 
 Geometry that holds for BOTH model families ComfyUI supports
 (epsilon/v-prediction and flow matching):
@@ -59,6 +59,19 @@ from comfy.k_diffusion.sampling import (
 )
 
 _ETA_EPS = 1e-6
+
+def _color_noise(z, beta):
+    """Spatially colour a white noise draw (1/f^beta along the last axis) and
+    renormalise to unit variance. beta=0 returns z unchanged."""
+    if beta <= 0.0:
+        return z
+    n = z.shape[-1]
+    f = torch.fft.rfft(z.float(), dim=-1)
+    freq = torch.arange(f.shape[-1], device=z.device, dtype=torch.float32) / max(n, 1)
+    amp = freq.clamp_min(1e-6) ** (-0.5 * float(beta))
+    amp[0] = 0.0
+    out = torch.fft.irfft(f * amp, n=n, dim=-1)
+    return (out / out.std().clamp_min(1e-8)).to(z.dtype)
 _SIGMA_FLOOR = 1e-6
 
 # 16-node Gauss-Legendre rule on [0, 1] for the kernel moments.
@@ -279,6 +292,7 @@ def sample_omni(
     eta_softness=0.10,
     lower_order_to_end=1,
     s_churn=0.0,
+    noise_color=0.0,
     s_tmin=0.0,
     s_tmax=float("inf"),
     noise_mode="brownian",
@@ -497,7 +511,8 @@ def sample_omni(
         def advance(x0_term, with_noise):
             out = decay * x_base + alphas[i + 1] * coef_x0 * x0_term
             if with_noise and noise_coeff > 0.0 and s_noise > 0.0:
-                out = out + noise_coeff * s_noise * noise_sampler(sigmas[i], sigmas[i + 1])
+                draw = noise_sampler(sigmas[i], sigmas[i + 1])
+                out = out + noise_coeff * s_noise * _color_noise(draw, noise_color)
             return out
 
         # ---- optional trapezoidal corrector (one extra NFE) ----
@@ -532,6 +547,7 @@ DEFAULTS = dict(
     eta_softness=0.10,
     lower_order_to_end=1,
     s_churn=0.0,
+    noise_color=0.0,
     s_tmin=0.0,
     s_tmax=float("inf"),
     noise_mode="brownian",
@@ -550,6 +566,7 @@ VARIANTS = {
     "omni_hybrid_sde": {"eta": 0.5},         # mid-trajectory stochasticity
     "omni_hybrid_cfg_pp": {"cfg_pp": True},  # CFG++ guidance
 }
+
 
 
 
