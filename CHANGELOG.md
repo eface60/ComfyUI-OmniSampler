@@ -1,6 +1,26 @@
+﻿## v1.1 — 2026-10-29
+
+Measured on modern flow-match models (Krea2 turbo int8 @ cfg 1, MOSS image
+int8 @ cfg 3.5, PixelDiT bf16) in addition to the analytic harness and SDXL.
+
+### Changed
+
+* `corrector` defaults to `auto`: `first` for epsilon models, `none` for
+  flow-matching models. The step-0 trapezoidal corrector helps eps models and
+  very low step counts, but costs 0.016-0.025 SSIM on flow models from 8 steps
+  up (Krea2 turbo @10: 0.8829 -> 0.9001, MOSS @16: 0.8875 -> 0.9037). The eps
+  path is unchanged (SDXL 12/20: 0.7434 / 0.7849).
+
+### Notes
+
+* `omni_hybrid_cfg_pp` is not appropriate for distilled cfg=1 models: CFG++
+  adds guidance the model was trained without (Krea2 turbo @10 steps: 0.9432
+  vs 0.9710 for plain omni).
+* Added `tools/modern_bench.py` (Krea2 / MOSS / Anima harness) and
+  `tools/flow_bench.py` (PixelDiT).
 # Changelog
 
-## v1.0 — 2026-10-29
+## v1.0 â€” 2026-10-29
 
 First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 (a junction to this repository, so the repo *is* what ComfyUI loads).
@@ -43,3 +63,4 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+

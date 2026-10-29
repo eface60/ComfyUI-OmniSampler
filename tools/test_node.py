@@ -144,7 +144,10 @@ def omni_sample(model, x, sigmas, extra_args=None, callback=None, disable=None, 
     from omni_sampler import omni_core
 
     return omni_core.sample_omni(
-        model, x, sigmas, extra_args=extra_args, callback=callback, disable=disable, **kw
+        model, x, sigmas, extra_args=extra_args, callback=callback, disable=disable,
+        # pin the integrator configuration: this test checks the KSAMPLER plumbing
+        # (inpaint wrapper, noise scaling, callbacks), not the default tuning
+        order=2, corrector="first", **kw
     )
 
 
@@ -157,6 +160,7 @@ if __name__ == "__main__":
         print(f"{len(FAILS)} CHECK(S) FAILED: {FAILS}")
         sys.exit(1)
     print("all checks passed")
+
 
 
 

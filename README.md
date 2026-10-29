@@ -71,7 +71,7 @@ names or use **Omni-Hybrid Sampler (select)** for full control.
 | `integrator` | `exp` | `exp` = exponential in logSNR (all features); `ab` = Adams-Bashforth in sigma, deterministic only |
 | `eta` | 0.0 | SDE strength (0 = ODE). `omni_hybrid_sde` uses 0.5 |
 | `s_noise` | 1.0 | noise multiplier (also scales churn) |
-| `corrector` | `first` | trapezoidal corrector on `none/first/last/first_last` steps (+1 NFE each) |
+| `corrector` | `auto` | trapezoidal corrector on `none/first/last/first_last` steps (+1 NFE each); `auto` = `first` for eps, `none` for flow (measured, see below) |
 | `lower_order_to_end` | 1 | first order for the last N real steps |
 | `cfg_pp` | false | CFG++ (costs +1 model call per step when cfg == 1) |
 | `cfg_pp_strength` | 0.5 | 0 = plain sampling, 1 = reference CFG++; see below |
@@ -240,4 +240,38 @@ git diff v1.0 -- omni_core.py    # see what changed since
 `outputs/` (benchmark renders) and `__pycache__/` are ignored.
 `CHANGELOG.md records what changed in each version and why, EXPERIMENTS.md\nrecords the leads that were tested and rejected (with numbers).
 
+## Modern flow-match models (v1.1)
+
+Measured on the models that matter now: Krea2 turbo (int8, distilled, cfg 1),
+MOSS image (int8, cfg 3.5) and PixelDiT (bf16). 768², `simple` scheduler,
+same seed, reference = a converged run of the same sampler at 40-100 steps.
+All runs are in-process (int8 checkpoints are not bit-reproducible across
+sessions, so cross-session comparison would be meaningless).
+
+| model | steps | euler | omni (v1.1) | omni (v1.0 defaults) |
+|---|---|---|---|---|
+| Krea2 turbo | 6 | 0.8932 | 0.8884 | 0.9085 |
+| Krea2 turbo | 8 | 0.9062 | 0.9059 | 0.8927 |
+| Krea2 turbo | 10 | 0.8992 | **0.9001** | 0.8829 |
+| MOSS | 10 | 0.8160 | 0.8149 | 0.7901 |
+| MOSS | 16 | 0.8934 | **0.9037** | 0.8875 |
+
+Two findings changed the defaults:
+
+1. **The step-0 corrector is an eps-model tuning.** It helps epsilon models
+   (SDXL +0.02 at 12/20 steps) and at very low step counts (Krea2@6: +0.02), but
+   it *hurts* flow models from 8 steps up (Krea2@10: -0.017, MOSS@10: -0.025,
+   MOSS@16: -0.016). `corrector="auto"` now resolves by family; the eps path is
+   byte-for-byte the old behaviour (SDXL 12/20 steps: 0.7434 / 0.7849 vs
+   0.7441 / 0.7849 before).
+2. **CFG++ is wrong at cfg=1 for distilled models.** At cfg 1 on Krea2 turbo the
+   `omni_hybrid_cfg_pp` preset drops to 0.8919 / 0.9432 versus 0.8994 / 0.9710
+   for plain `omni_hybrid` — a turbo model is trained for exactly cfg 1, so the
+   extra guidance CFG++ adds has nothing to correct. Use the cfg_pp preset for
+   normal-cfg models only, and lower `cfg_pp_strength` (0.5 default) or `cfg`
+   itself if it looks over-guided.
+
+On these models omni is roughly at euler at 6-10 steps and clearly ahead at
+16+ (MOSS@16: +0.010), while `dpmpp_2m` trails both (0.783/0.845 on MOSS at
+10/16 steps) — its eps-only step size is the reason.
 

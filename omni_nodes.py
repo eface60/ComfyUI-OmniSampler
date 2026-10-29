@@ -57,10 +57,10 @@ class OmniSamplerSelect:
                     {"default": 1.0, "min": 0.0, "max": 100.0, "step": 0.01, "round": False},
                 ),
                 "corrector": (
-                    ["first", "none", "last", "first_last"],
+                    ["auto", "first", "none", "last", "first_last"],
                     {
-                        "tooltip": "Trapezoidal corrector on selected steps (costs one extra "
-                                   "model call per corrected step). 'first' measured best.",
+                        "tooltip": "Trapezoidal corrector on selected steps (one extra model call each). "
+                                   "auto = first for eps models, none for flow models (measured).",
                     },
                 ),
                 "lower_order_to_end": (
@@ -203,3 +203,4 @@ def register_samplers():
 
 NODE_CLASS_MAPPINGS = {"OmniSamplerSelect": OmniSamplerSelect}
 NODE_DISPLAY_NAME_MAPPINGS = {"OmniSamplerSelect": "Omni-Hybrid Sampler (select)"}
+

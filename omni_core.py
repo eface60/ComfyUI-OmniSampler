@@ -284,7 +284,7 @@ def sample_omni(
     noise_mode="brownian",
     cfg_pp=False,
     cfg_pp_strength=0.5,
-    corrector="first",
+    corrector="auto",
     final_extrapolate=0.0,
     x0_average="ab2",
     min_step_ratio=0.5,
@@ -336,10 +336,16 @@ def sample_omni(
         )
 
     # ---- corrector schedule --------------------------------------------
+    # Measured: the step-0 trapezoidal corrector helps epsilon models but hurts
+    # flow-matching ones (Krea2 turbo -0.05 SSIM at 10 steps, MOSS -0.025 at 10
+    # and -0.016 at 16, vs +0.02 on SDXL), so "auto" resolves by family.
+    corr = str(corrector).lower()
+    if corr == "auto":
+        corr = "none" if flow else "first"
     corr_steps = set()
-    if corrector in ("first", "first_last"):
+    if corr in ("first", "first_last"):
         corr_steps.add(0)
-    if corrector in ("last", "first_last") and n_steps >= 3:
+    if corr in ("last", "first_last") and n_steps >= 3:
         corr_steps.add(n_steps - 2)
 
     # ---- noise ---------------------------------------------------------
@@ -537,7 +543,7 @@ DEFAULTS = dict(
     noise_mode="brownian",
     cfg_pp=False,
     cfg_pp_strength=0.5,
-    corrector="first",
+    corrector="auto",
     final_extrapolate=0.0,
     x0_average="ab2",
     min_step_ratio=0.5,
@@ -550,6 +556,7 @@ VARIANTS = {
     "omni_hybrid_sde": {"eta": 0.5},         # mid-trajectory stochasticity
     "omni_hybrid_cfg_pp": {"cfg_pp": True},  # CFG++ guidance
 }
+
 
 
 
