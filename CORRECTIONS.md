@@ -1,4 +1,4 @@
-# Corrections: two measurement bugs that invalidated the real-model numbers
+﻿# Corrections: two measurement bugs that invalidated the real-model numbers
 
 This file records errors found *after* v1.1/v1.2 were tagged. The toy/analytic
 results and the algebraic checks stand; the real-model image numbers did not.
@@ -68,5 +68,33 @@ the mode is fixed, and the number measures what a sampler is supposed to do
 measured step, so it is affordable on a handful of steps.
 
 Until that is implemented and validated, I do not claim any real-model accuracy
-improvement over v1.0 — only the algebraic fixes (CFG++ guidance weighting,
+improvement over v1.0 â€” only the algebraic fixes (CFG++ guidance weighting,
 churn geometry) and the ppm `euler_gamma` equivalence (2.4e-7).
+
+## Status of the local-error metric (tools/local_metric.py)
+
+Implemented and running: it re-runs the sampler on a refined sub-schedule from
+the captured `x_i` and compares the denoised predictions at the shared node, so
+the basin is fixed and the number measures integration error only.
+
+First measurement, MOSS 10 steps, 5 intervals (0..4), 16 substeps:
+
+| corrector | mean | interval 0 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|---|
+| `first` | 1.388e-1 | 2.26e-1 | 1.50e-1 | 1.10e-1 | 1.10e-1 | 9.7e-2 |
+| `none` | 1.372e-1 | 2.24e-1 | 1.29e-1 | 1.22e-1 | 1.22e-1 | 9.8e-2 |
+
+Two honest caveats:
+
+* **Interval 0 is not resolved.** For flow schedules the first lambda gap is
+  ~12.7, so a 16-substep first-order reference has large error there — the
+  0.22 figure is mostly reference error, not sampler error. The metric needs
+  `substeps` proportional to the interval's `h` (e.g. `ceil(h/0.2)`) before the
+  first interval can be judged. The corrector only acts on interval 0, so this
+  is exactly the interval that matters for the open question.
+* On intervals 1-4 the corrector is neutral to within 1% (0.150/0.110/0.110/0.097
+  vs 0.129/0.122/0.122/0.098) — no evidence either way for flow models.
+
+So the corrector question is still open; `corrector="first"` remains the default
+because that is the v1.0 behaviour, not because it is proven better.
+
