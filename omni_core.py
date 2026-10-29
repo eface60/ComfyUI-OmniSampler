@@ -1,4 +1,4 @@
-﻿"""Omni-Hybrid sampler: one integration engine, per-regime components.
+"""Omni-Hybrid sampler: one integration engine, per-regime components.
 
 Geometry that holds for BOTH model families ComfyUI supports
 (epsilon/v-prediction and flow matching):
@@ -189,6 +189,70 @@ def lagrange_integral_weights(nodes, a: float, b: float):
 
 
 # --------------------------------------------------------------------------
+# NFE skipping: epsilon extrapolation (comfyui-FSampler's mechanism)
+# --------------------------------------------------------------------------
+def lagrange_extrapolate(nodes, values, target):
+    """Extrapolate the polynomial through (nodes_i, values_i) to ``target``.
+
+    FSampler hard-codes the uniform coefficients (2e_n - e_{n-1}, ...); using the
+    actual node positions keeps the same order on a non-uniform grid.
+    """
+    m = len(nodes)
+    if m == 0:
+        return None
+    out = None
+    for i in range(m):
+        li = 1.0
+        for j in range(m):
+            if j != i:
+                d = nodes[i] - nodes[j]
+                if abs(d) < 1e-12:
+                    return None
+                li *= (target - nodes[j]) / d
+        term = values[i] * li
+        out = term if out is None else out + term
+    return out
+
+
+def extrapolate_eps(hist, target_lam, target_sigma, order, space):
+    """epsilon at the current node from the last ``order`` real evaluations.
+
+    order 1 = hold, 2 = linear (FSampler's ``2e_n - e_{n-1}``), 3 = quadratic.
+    ``hist`` is newest-first [(lam, sigma, eps), ...].
+    """
+    if order < 1 or len(hist) < order:
+        return None
+    if order == 1:
+        return hist[0][2]
+    pts = hist[:order]
+    if str(space).lower() == "sigma":
+        nodes = [p[1] for p in pts]
+        target = target_sigma
+    else:
+        nodes = [p[0] for p in pts]
+        target = target_lam
+    return lagrange_extrapolate(nodes, [p[2] for p in pts], target)
+
+
+def valid_eps_hat(eps_hat, prev_eps, min_abs=1e-6, min_rel=1e-6, max_rel=50.0):
+    """FSampler's guard rails: finite, and RMS size within [min_rel, max_rel]."""
+    if eps_hat is None:
+        return False
+    if not bool(torch.isfinite(eps_hat).all()):
+        return False
+    hat = float(eps_hat.pow(2).mean().sqrt())
+    if not math.isfinite(hat) or hat < float(min_abs):
+        return False
+    if prev_eps is not None:
+        prev = float(prev_eps.pow(2).mean().sqrt())
+        if prev > 0.0:
+            rel = hat / prev
+            if rel < float(min_rel) or rel > float(max_rel):
+                return False
+    return True
+
+
+# --------------------------------------------------------------------------
 # per-step controls
 # --------------------------------------------------------------------------
 def clamp_sigma(sigma: float, flow: bool) -> float:
@@ -290,6 +354,17 @@ def sample_omni(
     x0_average="ab2",
     min_step_ratio=0.5,
     max_step_lambda=None,
+    # NFE skipping (experimental, default off): evaluate only every k-th step
+    # and reconstruct epsilon from the previous real evaluations
+    skip_every=1,
+    skip_order=2,
+    skip_space="lam",
+    skip_min_alpha=0.02,
+    skip_protect_first=1,
+    skip_protect_last=1,
+    skip_min_abs=1e-6,
+    skip_min_rel=1e-6,
+    skip_max_rel=50.0,
 ):
     """Unified exponential-integrator sampler (see module docstring).
 
@@ -361,6 +436,7 @@ def sample_omni(
 
     hist_x0 = []
     hist_u = []
+    eps_hist = []      # newest-first [(lam, sigma, eps)] for skip_every
     prev_lam = None
     prev_denoised = None
     prev_denoised2 = None
@@ -406,8 +482,30 @@ def sample_omni(
         lam_from = half_log_snr(sig_from, flow)
         alpha_from = alpha_of(sig_from, flow)
 
-        # ---- model evaluation ----
-        denoised = model(x, sigma_eval * s_in, **extra_args)
+        # ---- model evaluation (or epsilon extrapolation on a skipped step) ----
+        skipped = False
+        if (
+            int(skip_every) > 1
+            and i > 0
+            and sigma_t > 0.0
+            and (i % int(skip_every)) != 0
+            and alpha_from > float(skip_min_alpha)
+            and i >= int(skip_protect_first)
+            and i <= n_steps - 1 - int(skip_protect_last)
+        ):
+            eps_hat = extrapolate_eps(eps_hist, lam_from, sig_from, int(skip_order), skip_space)
+            prev_eps = eps_hist[0][2] if eps_hist else None
+            if valid_eps_hat(eps_hat, prev_eps, skip_min_abs, skip_min_rel, skip_max_rel):
+                denoised = (x - eps_hat * sig_from) / alpha_from
+                skipped = True
+            else:
+                denoised = model(x, sigma_eval * s_in, **extra_args)
+                eps_hist.insert(0, (lam_from, sig_from, (x - denoised * alpha_from) / sig_from))
+                del eps_hist[4:]
+        else:
+            denoised = model(x, sigma_eval * s_in, **extra_args)
+            eps_hist.insert(0, (lam_from, sig_from, (x - denoised * alpha_from) / sig_from))
+            del eps_hist[4:]
         if callback is not None:
             callback(
                 {
@@ -570,7 +668,31 @@ DEFAULTS = dict(
     x0_average="ab2",
     min_step_ratio=0.5,
     max_step_lambda=None,
+    skip_every=1,
+    skip_order=2,
+    skip_space="lam",
+    skip_min_alpha=0.02,
+    skip_protect_first=1,
+    skip_protect_last=1,
+    skip_min_abs=1e-6,
+    skip_min_rel=1e-6,
+    skip_max_rel=50.0,
 )
+
+# A/B presets exposed by the full sampler node. Each is a delta on DEFAULTS.
+AB_PRESETS = {
+    "A: shipped (v1.3.1)": {},
+    "B: no corrector": {"corrector": "none"},
+    "C: skip every 2nd eval": {"skip_every": 2, "skip_order": 2},
+    "C2: skip every 2nd, order 3": {"skip_every": 2, "skip_order": 3},
+    "D: ppm gamma churn": {"churn_mode": "gamma", "s_churn": 2.0},
+    "E: CFG++ mild (0.5)": {"cfg_pp": True, "cfg_pp_strength": 0.5},
+    "F: CFG++ full (1.0)": {"cfg_pp": True, "cfg_pp_strength": 1.0},
+    "G: order 1": {"order": 1},
+    "H: exact kernel": {"x0_average": "exact"},
+    "I: SDE eta 0.3": {"eta": 0.3},
+    "J: no gate": {"min_step_ratio": 0.0},
+}
 
 # Registered preset variants (each also selectable through the Sampler node).
 VARIANTS = {

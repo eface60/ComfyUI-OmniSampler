@@ -1,4 +1,23 @@
-﻿## v1.3 — 2026-10-29
+﻿## v1.4 — 2026-10-29
+
+### Added
+
+* **`Omni-Hybrid KSampler (A/B)`** (`OmniKSampler`): a full sampler node with
+  every Omni knob plus an 11-row `variant` preset switch, returning the latent
+  and a `config` string (also printed) with an exact `evals~N` count. See
+  AB_TESTING.md for the preset table and how to compare at equal NFE.
+* `skip_every` / `skip_order` merged into `omni_core` (epsilon Lagrange
+  extrapolation with FSampler's guard rails and protection of the first/last
+  steps). Default `skip_every=1`; verified the default path is bit-identical to
+  v1.3.1 (eps/karras n=12: 2.4624e-2, 13 evals).
+* `tools/test_node_ab.py`: renders four presets through the node on a real flow
+  model and reports wall time and latent distance to variant A.
+
+### Notes
+
+* Presets marked experimental (`C`, `C2`) are unproven; `B` and `C` are the two
+  open questions left by the experiment round (see AB_TESTING.md).
+## v1.3 — 2026-10-29
 
 ### Fixed (measurement, not sampler)
 
@@ -114,6 +133,7 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+
 
 
 
