@@ -1,4 +1,24 @@
-﻿## v1.4.1 — 2026-10-29
+﻿## v1.4.2 — 2026-10-30
+
+### Fixed
+
+* **`eta > 0` crashed with negative seeds** —
+  `ValueError: expected non-negative integer` from numpy's `SeedSequence`,
+  reached via `BrownianTreeNoiseSampler` -> `torchsde.BrownianTree`. ComfyUI
+  seed nodes can emit negative integers even though the widget declares
+  `min=0`, and stock comfy samplers (`dpmpp_2m_sde`) fail identically on the
+  same input. `sample_omni` now normalises a negative seed with `seed % 2**64`
+  before building the tree, and falls back to white noise if the tree still
+  cannot be built (degenerate interval etc.) instead of aborting the run.
+* Reproduced and covered by `tools/test_eta_seed.py`: seeds -1 and -123456789
+  run with `eta=0.3`, `eta=0` never constructs a noise sampler, same seed
+  reproduces bit-exactly and a different seed does not.
+
+### Verified
+
+* MOSS with eta=0.3: seeds 7, -1, -123456789 and 2**64-1 all run and produce
+  different latents (norms 302.0 / 288.5 / 264.3 / 297.5).
+## v1.4.1 — 2026-10-29
 
 ### Fixed
 
@@ -151,6 +171,7 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+
 
 
 

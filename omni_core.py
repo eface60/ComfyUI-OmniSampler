@@ -429,8 +429,20 @@ def sample_omni(
     if eta > _ETA_EPS and s_noise > 0.0:
         positive = [s for s in raw if s > 0.0]
         seed = extra_args.get("seed", None)
+        if isinstance(seed, (int, float)):
+            seed = int(seed)
+            # torchsde's BrownianTree feeds this to numpy's SeedSequence, which
+            # rejects negative integers. Linked seed nodes can supply them even
+            # though the widget has min=0, so normalise instead of crashing
+            # ("ValueError: expected non-negative integer").
+            if seed < 0:
+                seed = seed % (2 ** 64)
         if noise_mode == "brownian" and positive and min(positive) > 0.0:
-            noise_sampler = BrownianTreeNoiseSampler(x, min(positive), max(positive), seed=seed, cpu=True)
+            try:
+                noise_sampler = BrownianTreeNoiseSampler(x, min(positive), max(positive), seed=seed, cpu=True)
+            except Exception as exc:  # degenerate interval, bad seed, ...
+                print(f"[omni_hybrid] brownian tree unavailable ({exc}); falling back to white noise")
+                noise_sampler = default_noise_sampler(x, seed=seed)
         else:
             noise_sampler = default_noise_sampler(x, seed=seed)
 
