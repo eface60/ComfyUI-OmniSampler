@@ -1,0 +1,25 @@
+PD-AOS corpus scan -- did the three spatial mechanisms engage?
+root: G:\AI\comfy\output\aflops
+files 2231 | valid 2210 | rejected 21
+  rejected   21  no step records
+
+PER-PIXEL CFG (stage 2)
+  runs with stage2 installed: 691  (with a logged map: 330, without: 361)
+  stage2 runs at cfg<=1: 0 | cfg>1: 691
+  stage2 installed but no map, by reason: {'none': 361}
+  stage-1 runs: 922 | ramp ever started: 922 | constant half-CFG: 0 | never returned to base: 24
+  map min/max over logged maps: n=475 p10 0.850 p50 0.850 p90 0.850 (min 0.850 max 0.850)
+  uniform maps (min==max, no spatial content): 0
+  mapped steps per stage2 run: p10 0 p50 0 p90 2 (min 0 max 7)
+
+PER-PIXEL ORDER
+  ord_mean over all steps: n=61515 p10 1.000 p50 1.144 p90 1.945
+  runs with any ord_mean > 1: 2127 / 2210
+  second_order_px (fraction of pixels): n=55094 p50 0.0463 p90 0.2578 max 1.0
+  runs with any second-order pixel: 1408 / 2210
+
+LOCAL FIELDS
+  |lf_m| mean per step: n=84778 p10 0.00060 p50 0.00250 p90 0.00450 max 0.0325
+  runs with any step |lf_m| > 1%: 796 / 2210
+  lf rho_max per step: n=84778 p50 0.00370 p90 0.01700 max 0.062
+  lf inject outcomes: {'applied': 54167, 'skipped:converged': 1717, 'off:distilled': 8381}

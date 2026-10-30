@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 outputs/
+tools/pd_aos_audit/ab_out/
 *.zip
 .DS_Store
 Thumbs.db

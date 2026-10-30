@@ -1,4 +1,4 @@
-﻿"""ComfyUI node + sampler-name registration for the Omni-Hybrid sampler."""
+"""ComfyUI node + sampler-name registration for the Omni-Hybrid sampler."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import comfy.samplers
 import comfy.utils
 import comfy.k_diffusion.sampling as kds
 
+from . import omni_core
 from .omni_core import AB_PRESETS, DEFAULTS, VARIANTS, sample_omni
 
 CATEGORY = "sampling/samplers"
@@ -135,6 +136,68 @@ class OmniSamplerSelect:
                     "FLOAT",
                     {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05, "round": False},
                 ),
+                # ---- spatial controls (appended last: positional safety) ----
+                "px_order": (
+                    "BOOLEAN",
+                    {
+                        "default": DEFAULTS["px_order"],
+                        "tooltip": "Per-pixel order: give the order-2 x0 extrapolation only to "
+                                   "pixels whose measured curvature keeps its error under "
+                                   "px_order_tol. Curved pixels fall back to order 1. No extra "
+                                   "model calls. OFF is bit-identical to the plain sampler.",
+                    },
+                ),
+                "px_order_tol": (
+                    "FLOAT",
+                    {
+                        "default": DEFAULTS["px_order_tol"],
+                        "min": 0.001,
+                        "max": 20.0,
+                        "step": 0.001,
+                        "round": False,
+                        "tooltip": "Only used when px_order is on. The allowed extrapolation error "
+                                   "relative to the local x0 size. Lower refuses more pixels and "
+                                   "looks more like order 1; higher approaches the plain global "
+                                   "order-2 sampler. 2.0 is a safe fallback: at 8 steps on Krea2 it "
+                                   "scored the same as the plain sampler, while 0.05 cost 0.014 SSIM.",
+                    },
+                ),
+                "cfg_map": (
+                    "BOOLEAN",
+                    {
+                        "default": DEFAULTS["cfg_map"],
+                        "tooltip": "Late per-region CFG: measure the cond/uncond gap at "
+                                   "cfg_map_start of the trajectory, then give the lowest-gap "
+                                   "regions cfg_map_floor of the guidance delta on later steps. "
+                                   "Needs cfg > 1 and is disabled with CFG++. OFF is bit-identical.",
+                    },
+                ),
+                "cfg_map_floor": (
+                    "FLOAT",
+                    {
+                        "default": DEFAULTS["cfg_map_floor"],
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "round": False,
+                        "tooltip": "Only used when cfg_map is on. The fraction of the late "
+                                   "guidance delta kept in the lowest-gap region. 1.0 disables "
+                                   "the map; 0.85 is the PD-AOS shipped floor.",
+                    },
+                ),
+                "cfg_map_start": (
+                    "FLOAT",
+                    {
+                        "default": DEFAULTS["cfg_map_start"],
+                        "min": 0.0,
+                        "max": 0.95,
+                        "step": 0.05,
+                        "round": False,
+                        "tooltip": "Only used when cfg_map is on. Trajectory fraction (0 = start, "
+                                   "1 = end) at which the map is measured and from which it is "
+                                   "applied. 0.5 measures at mid-run.",
+                    },
+                ),
             }
         }
 
@@ -171,6 +234,11 @@ class OmniSamplerSelect:
             s_churn=float(inputs.get("s_churn", DEFAULTS["s_churn"])),
             noise_mode=str(inputs.get("noise_mode", DEFAULTS["noise_mode"])),
             final_extrapolate=float(inputs.get("final_extrapolate", DEFAULTS["final_extrapolate"])),
+            px_order=bool(inputs.get("px_order", DEFAULTS["px_order"])),
+            px_order_tol=float(inputs.get("px_order_tol", DEFAULTS["px_order_tol"])),
+            cfg_map=bool(inputs.get("cfg_map", DEFAULTS["cfg_map"])),
+            cfg_map_floor=float(inputs.get("cfg_map_floor", DEFAULTS["cfg_map_floor"])),
+            cfg_map_start=float(inputs.get("cfg_map_start", DEFAULTS["cfg_map_start"])),
         )
         return (comfy.samplers.KSAMPLER(functools.partial(sample_omni, **opts)),)
 
@@ -257,6 +325,16 @@ class OmniKSampler:
                 "skip_order": ("INT", {"default": DEFAULTS["skip_order"], "min": 1, "max": 3}),
                 "final_extrapolate": ("FLOAT", {"default": DEFAULTS["final_extrapolate"], "min": 0.0,
                                                 "max": 1.0, "step": 0.05, "round": False}),
+                "px_order": ("BOOLEAN", {"default": DEFAULTS["px_order"],
+                                         "tooltip": "Per-pixel order gate (see Omni-Hybrid Sampler (select))."}),
+                "px_order_tol": ("FLOAT", {"default": DEFAULTS["px_order_tol"], "min": 0.001,
+                                           "max": 20.0, "step": 0.001, "round": False}),
+                "cfg_map": ("BOOLEAN", {"default": DEFAULTS["cfg_map"],
+                                        "tooltip": "Late per-region CFG map (needs cfg > 1)."}),
+                "cfg_map_floor": ("FLOAT", {"default": DEFAULTS["cfg_map_floor"], "min": 0.0,
+                                             "max": 1.0, "step": 0.01, "round": False}),
+                "cfg_map_start": ("FLOAT", {"default": DEFAULTS["cfg_map_start"], "min": 0.0,
+                                             "max": 0.95, "step": 0.05, "round": False}),
             }
         }
 
@@ -316,9 +394,15 @@ class OmniKSampler:
         )
         extra = 1 if (corr in ("first", "first_last") and not opts.get("cfg_pp", False)) else 0
         delta = {k: v for k, v in opts.items() if DEFAULTS.get(k) != v}
+        spatial = ""
+        if opts.get("px_order") or opts.get("cfg_map"):
+            spatial = " | " + " ".join(
+                f"{k}={omni_core.LAST_STATS[k]}" for k in sorted(omni_core.LAST_STATS)
+                if k.startswith(("px_order", "cfg_map")))
         summary = (
             f"variant={variant} flow={flow} steps={n} cfg={cfg} scheduler={scheduler} "
             f"evals~{evals + extra} | " + ", ".join(f"{k}={v}" for k, v in sorted(delta.items()))
+            + spatial
         )
         print(f"[OmniKSampler] {summary}")
         out = dict(latent)

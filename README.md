@@ -1,4 +1,4 @@
-﻿# ComfyUI-OmniSampler
+# ComfyUI-OmniSampler
 
 A single diffusion sampler that recombines the measured best parts of ComfyUI's
 45 built-in samplers, and fixes the parts that are only correct for
@@ -23,6 +23,8 @@ custom_nodes/ComfyUI-OmniSampler/
     â”œâ”€â”€ sd_cfgpp.py        # real-image check of CFG++ at cfg=1
     â”œâ”€â”€ diag_steps.py      # per-step divergence diagnostic
     â”œâ”€â”€ test_node.py       # registration + KSAMPLER end-to-end test
+    â”œâ”€â”€ verify_spatial.py  # OFF-identity + connectivity for the spatial controls
+    â”œâ”€â”€ spatial_ab.py      # real-model A/B for those controls
     â””â”€â”€ sd_bench.py        # real SDXL image comparison
 ```
 
@@ -208,6 +210,25 @@ KSamplerAdvanced and KSamplerSelect dropdowns, that `ksampler()` /
 `sampler_object()` resolve them, and that `KSAMPLER.sample()` (with the inpaint
 wrapper, noise scaling and callbacks) lands within 4-6% of the analytic
 reference on both families.
+
+## Optional spatial controls (v1.5, OFF by default)
+
+Two of PD-AOS's three spatial mechanisms were ported, and both are **off**;
+OFF is bit-identical to v1.4.2 (proved by `tools/verify_spatial.py`, which runs
+the previous release's module side by side).
+
+| option | what it does | measured |
+|---|---|---|
+| `px_order` / `px_order_tol` | gives the order-2 x0 extrapolation only to pixels whose Lagrange remainder is under the tolerance; the rest run as order 1. No extra NFE. | On Krea2 @ 8 steps (512², SSIM to a 40-step reference, one process): plain 0.8620; tol 0.05 **0.8477**, 0.2 0.8550, 0.5 0.8587, 1.0 0.8592, 2.0 0.8617, 5.0 0.8608. Default 2.0 is the neutral value; a tight gate loses accuracy. |
+| `cfg_map` / `cfg_map_floor` / `cfg_map_start` | measures the cond/uncond gap at `cfg_map_start` of the trajectory, pools it to 8×8, and scales the late guidance delta so the lowest-gap region keeps `cfg_map_floor` of it. Needs cfg > 1; disabled with CFG++. | On MOSS @ 8 steps (512², cfg 3.5): base vs a repeated base is bit-identical; the map builds at step 3, applies on 6 steps, and moves the decoded image 0.01424 RMS (SSIM 0.9824). |
+| local fields | **not ported.** | PD-AOS's own typical amplitude was 0.25% of the drift term (p90 0.45%), it is probe-dependent, and its own A/B could not separate it from run-to-run drift. |
+
+The audit that produced these numbers, including the two defects in the PD-AOS
+originals (the guidance ramp never starts on short `simple` schedules, and the
+"per-pixel" map is 8×8 regions measured from a 16 px probe), is
+`PD_AOS_AUDIT.md`. `tools/spatial_ab.py` renders `base`, `base2` (control),
+`pxo`, `cfgm` and `both` on one model/seed so the operator can judge the
+appearance; the numbers above are not a substitute for that.
 
 ## Limitations
 

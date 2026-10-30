@@ -1,4 +1,4 @@
-﻿"""Benchmark on modern flow models (krea2 / moss / anima), in one process.
+"""Benchmark on modern flow models (krea2 / moss / anima), in one process.
 
 Loads the diffusion model + its text encoder + VAE, renders a high-NFE
 reference with euler (exact-step, flow-correct) and then a matrix of samplers.
@@ -114,6 +114,14 @@ VARIANTS = {
     "gamma": ("omni_hybrid", {"s_churn": 2.0, "churn_mode": "gamma"}),
     "gamma_cfgpp": ("omni_hybrid", {"s_churn": 2.0, "churn_mode": "gamma", "cfg_pp": True, "cfg_pp_strength": 1.0}),
     "nc_cfgpp_s1": ("omni_hybrid", {"corrector": "none", "cfg_pp": True, "cfg_pp_strength": 1.0}),
+    "pxo": ("omni_hybrid", {"px_order": True}),
+    "pxo_0p05": ("omni_hybrid", {"px_order": True, "px_order_tol": 0.05}),
+    "pxo_loose": ("omni_hybrid", {"px_order": True, "px_order_tol": 0.2}),
+    "pxo_0p5": ("omni_hybrid", {"px_order": True, "px_order_tol": 0.5}),
+    "pxo_1": ("omni_hybrid", {"px_order": True, "px_order_tol": 1.0}),
+    "pxo_2": ("omni_hybrid", {"px_order": True, "px_order_tol": 2.0}),
+    "pxo_5": ("omni_hybrid", {"px_order": True, "px_order_tol": 5.0}),
+    "cfgm": ("omni_hybrid", {"cfg_map": True}),
 }
 
 

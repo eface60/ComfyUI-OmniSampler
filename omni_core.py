@@ -49,6 +49,7 @@ import math
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 import comfy.model_patcher
 import comfy.model_sampling
@@ -60,6 +61,13 @@ from comfy.k_diffusion.sampling import (
 
 _ETA_EPS = 1e-6
 _SIGMA_FLOOR = 1e-6
+
+# Per-run diagnostics for the two optional spatial controls.  The node reads this
+# dict after the run and writes it into the config string, so an ON arm can be
+# told apart from an OFF arm without opening the image.  It is replaced (not
+# cleared) at the start of each run, so a caller holding the previous dict still
+# describes the run that produced it.
+LAST_STATS = {}
 
 # 16-node Gauss-Legendre rule on [0, 1] for the kernel moments.
 _GL_X, _GL_W = np.polynomial.legendre.leggauss(16)
@@ -299,6 +307,144 @@ def _bounded_delta(delta, reference, max_rel=0.5):
     return delta * scale
 
 
+# --------------------------------------------------------------------------
+# Optional spatial controls (PD-AOS ports, OFF by default)
+# --------------------------------------------------------------------------
+def _find_cfg_guider(model):
+    """Return the CFGGuider in the wrapper chain, or None.
+
+    ``KSAMPLER.sample`` receives the guider directly; ``comfy.samplers.sample``
+    wraps it in ``KSamplerX0Inpaint``, whose ``inner_model`` is the guider.  The
+    map hook reads ``cond_denoised``/``uncond_denoised``/``cond_scale`` from
+    ComfyUI's own ``cfg_function``, so the object only has to be identified (to
+    fail cleanly when the caller has no CFG); its scale is not changed.
+    """
+    cur = model
+    for _ in range(4):
+        if cur is None:
+            return None
+        if hasattr(cur, "set_cfg") and hasattr(cur, "cfg"):
+            return cur
+        cur = getattr(cur, "inner_model", None)
+    return None
+
+
+def _blur_mask(mask):
+    """3x3 replicate-padded box blur for a [B,1,H,W] mask (no-op otherwise)."""
+    if mask.dim() != 4:
+        return mask
+    x = F.pad(mask.float(), (1, 1, 1, 1), mode="replicate")
+    return F.avg_pool2d(x, 3, stride=1).to(mask.dtype)
+
+
+def _px_order_mask(hist, lam_mid, tol, smooth=True):
+    """Per-pixel allowance in [0,1] for the order-2 x0 extrapolation.
+
+    ``hist`` is newest-first ``[(lambda, x0), ...]`` with at least three real
+    model evaluations.  The allowance is the Lagrange remainder of the LINEAR
+    extrapolation through the two newest points, evaluated at ``lam_mid``:
+
+        err(x) = |f''(x)| / 2 * prod_j |x - x_j|,  j in {lambda_s, lambda_s-1}
+
+    ``f2`` below estimates ``f''`` as twice the second divided difference, and
+    ``prod`` is the node product, so the computed ``err`` is **twice** the
+    bound above.  The factor is deliberate and conservative: the divided
+    difference is a point estimate of a curvature that can grow inside the
+    step, and over-refusing a pixel costs only one order.  `px_order_tol` is
+    therefore in units of that doubled bound.  The mask is
+    ``clamp(1 - err/(tol*|x0|), 0, 1)``: a pixel at the bound gets half the
+    extrapolation, and at twice the bound it runs as order 1.
+
+    This is the Runge validity test PD-AOS uses (`order_by_bound`), reduced to
+    the one order omni's exponential integrator has.  It needs no probe and no
+    extra model call: the three x0 values are already in the sampler's history.
+    """
+    if len(hist) < 3:
+        return None
+    l0, x0 = hist[0]
+    l1, x1 = hist[1]
+    l2, x2 = hist[2]
+    h1 = l0 - l1
+    h2 = l1 - l2
+    hs = l0 - l2
+    if min(abs(h1), abs(h2), abs(hs)) < 1e-8:
+        return None
+    # second divided difference, times 2 -> f'' estimate
+    f2 = 2.0 * ((x0 - x1) / h1 - (x1 - x2) / h2) / hs
+    prod = abs((lam_mid - l0) * (lam_mid - l1))
+    err = f2.abs() * prod
+    dims = tuple(range(1, x0.dim()))
+    ref = x0.float().pow(2).mean(dim=dims, keepdim=True).sqrt().clamp_min(1e-8)
+    ratio = err.float().mean(dim=1, keepdim=True) / (float(tol) * ref)
+    mask = (1.0 - ratio).clamp(0.0, 1.0)
+    if smooth:
+        mask = _blur_mask(mask)
+    return mask.to(x0.dtype)
+
+
+def _cfg_map_from_gap(cond, uncond, floor, pool=8):
+    """Per-region guidance ratio from the cond/uncond gap, or None.
+
+    The map is the magnitude of the conditional-minus-unconditional prediction,
+    normalised to its own range and pooled to ``pool``x``pool``.  ``floor`` is
+    the fraction of the guidance delta left in the lowest-gap region (0.85 = the
+    PD-AOS shipped value), so a flat background keeps 85% of the late guidance
+    while prompt-specific regions keep all of it.
+
+    Only the SHAPE is taken from PD-AOS; the quantity is measured on the run's
+    own mid-trajectory prediction instead of a separate probe, so there is no
+    probe cache and no extra NFE.
+    """
+    if cond is None or uncond is None:
+        return None
+    gd = (cond.float() - uncond.float())
+    if gd.dim() == 5:
+        gd = gd.mean(dim=2)          # collapse frames; broadcast back later
+    if gd.dim() != 4:
+        return None
+    pm = gd.pow(2).mean(dim=1).sqrt()          # [B,H,W], channel RMS
+    if pm.numel() == 0:
+        return None
+    p90 = float(torch.quantile(pm.reshape(-1), 0.9))
+    if p90 <= 1e-8:
+        return None
+    pm = (pm / p90).clamp(0.0, 1.0)
+    if min(pm.shape[-2:]) > int(pool):
+        pm = F.adaptive_avg_pool2d(pm.unsqueeze(1), (int(pool), int(pool)))[:, 0]
+    lo = float(pm.min())
+    hi = float(pm.max())
+    if hi - lo <= 1e-6:
+        return None
+    p = (pm - lo) / (hi - lo)
+    m = float(floor) + (1.0 - float(floor)) * p
+    return m.unsqueeze(1)
+
+
+def _apply_cfg_map(den, uncond, scale, cmap):
+    """Scale the guidance delta by a per-region ratio; None/invalid = unchanged.
+
+    `cmap` is RELATIVE (floor..1), not an absolute CFG value: the delta this
+    sampler's guider produced is multiplied by it.  `scale` is only a validity
+    check -- at cfg <= 1 ComfyUI hands the hook a zero unconditional prediction,
+    and applying a ratio to that is not a guidance change.
+    """
+    if den is None or uncond is None or cmap is None:
+        return den
+    try:
+        scale = float(scale)
+    except (TypeError, ValueError):
+        return den
+    if scale <= 1.0 + 1e-6:
+        return den
+    ratio = cmap.to(device=den.device, dtype=den.dtype)
+    if tuple(ratio.shape[-2:]) != tuple(den.shape[-2:]):
+        ratio = F.interpolate(ratio, size=tuple(den.shape[-2:]),
+                              mode="bilinear", align_corners=False)
+    if den.dim() == 5 and ratio.dim() == 4:
+        ratio = ratio.unsqueeze(2)               # broadcast over frames
+    return uncond + (den - uncond) * ratio
+
+
 def _final_extrapolate(x0, values, sigmas, weight):
     """Blend x0 with an extrapolation of x0 to sigma=0 (quadratic if possible)."""
     if weight <= 0.0:
@@ -365,6 +511,17 @@ def sample_omni(
     skip_min_abs=1e-6,
     skip_min_rel=1e-6,
     skip_max_rel=50.0,
+    # ---- optional spatial controls (PD-AOS ports; both OFF by default) ----
+    # px_order: let each pixel decide whether the order-2 x0 extrapolation is
+    # valid for it (Lagrange remainder).  cfg_map: scale the late guidance delta
+    # per region by 0.85..1.0, measured from the run's own cond/uncond gap.
+    px_order=False,
+    px_order_tol=2.0,
+    px_order_smooth=True,
+    cfg_map=False,
+    cfg_map_floor=0.85,
+    cfg_map_start=0.5,
+    cfg_map_pool=8,
 ):
     """Unified exponential-integrator sampler (see module docstring).
 
@@ -376,13 +533,39 @@ def sample_omni(
     if the current lambda step is more than 1/min_step_ratio times the previous
     one (or longer than max_step_lambda), the linear history fit is unreliable
     and the step falls back to first order.  Both are measured, not guessed.
+
+    ``px_order`` and ``cfg_map`` default OFF, and OFF is bit-identical to the
+    sampler without them.  When ON:
+
+    * ``px_order`` gives the order-2 extrapolation only to pixels whose
+      Lagrange remainder is under ``px_order_tol`` (relative to local |x0|).
+      Pixels over the bound run as order 1.  It costs no extra model call.
+    * ``cfg_map`` builds an ``cfg_map_pool`` x ``cfg_map_pool`` map from the
+      cond/uncond gap at the first step after ``cfg_map_start`` of the
+      trajectory, then scales the guidance delta in later steps so the
+      lowest-gap region keeps ``cfg_map_floor`` of it.  It needs cfg > 1 (there
+      is no unconditional prediction otherwise) and is disabled with CFG++.
     """
+    global LAST_STATS
+    LAST_STATS = {}
     if extra_args is None:
         extra_args = {}
     sigmas = sigmas.to(x.device)
     n_steps = len(sigmas) - 1
     if n_steps <= 0:
         return x
+    px_order = bool(px_order)
+    px_order_tol = max(1e-4, float(px_order_tol))
+    cfg_map = bool(cfg_map)
+    cfg_map_reason = None
+    if cfg_map and cfg_pp:
+        cfg_map = False
+        cfg_map_reason = "cfg_pp"
+    if cfg_map and float(cfg_map_floor) >= 1.0 - 1e-9:
+        cfg_map = False
+        cfg_map_reason = "floor_is_1"
+    cfg_map_floor = min(max(float(cfg_map_floor), 0.0), 1.0)
+    cfg_map_start = min(max(float(cfg_map_start), 0.0), 0.99)
 
     model_sampling = _find_model_sampling(model)
     flow = is_flow_model(model_sampling)
@@ -398,17 +581,45 @@ def sample_omni(
     if abs(lam_span) < 1e-9:
         lam_span = 1.0
 
-    # ---- CFG++ plumbing -------------------------------------------------
+    # ---- guidance plumbing: CFG++ capture and/or the per-region CFG map ----
+    # One post-CFG hook serves both.  CFG++ needs the unconditional prediction
+    # for its noise estimate; the map needs both predictions at one mid-run
+    # step and then scales the guidance delta on later steps.  A graph's own
+    # post-CFG hooks are appended after ours, so this neither replaces nor
+    # reorders them (the pd_aos stage-2 build learned that replacing the graph's
+    # hook makes the feature silently inert).
     uncond_denoised = None
-    if cfg_pp:
+    cfg_state = {"map": None, "cond": None, "uncond": None, "calls": 0}
+    if cfg_pp or cfg_map:
         def post_cfg_function(args):
             nonlocal uncond_denoised
-            uncond_denoised = args.get("uncond_denoised")
-            return args["denoised"]
+            u = args.get("uncond_denoised")
+            if u is not None:
+                uncond_denoised = u
+            if not cfg_map:
+                return args["denoised"]
+            # At cond_scale == 1 ComfyUI's cfg1 optimisation skips the
+            # unconditional pass and hands the hook a ZERO tensor, not None.
+            # Building a map from `cond - 0` would scale the whole prediction;
+            # refuse anything at or below 1.0 instead.
+            try:
+                scale = float(args.get("cond_scale", 1.0))
+            except (TypeError, ValueError):
+                scale = 1.0
+            if scale <= 1.0 + 1e-6:
+                return args["denoised"]
+            cfg_state["calls"] += 1
+            c = args.get("cond_denoised")
+            if u is not None:
+                cfg_state["uncond"] = u.detach()
+            if c is not None:
+                cfg_state["cond"] = c.detach()
+            return _apply_cfg_map(args.get("denoised"), u, scale, cfg_state["map"])
 
         model_options = dict(extra_args.get("model_options", {}))
         extra_args["model_options"] = comfy.model_patcher.set_model_options_post_cfg_function(
-            model_options, post_cfg_function, disable_cfg1_optimization=True
+            model_options, post_cfg_function,
+            disable_cfg1_optimization=bool(cfg_pp),
         )
 
     # ---- corrector schedule --------------------------------------------
@@ -449,6 +660,17 @@ def sample_omni(
     hist_x0 = []
     hist_u = []
     eps_hist = []      # newest-first [(lam, sigma, eps)] for skip_every
+    px_hist = []       # newest-first [(lam, x0)] from REAL model evaluations only
+    px_steps = 0
+    px_mask_sum = 0.0
+    px_mask_min = None
+    cfg_map_steps = 0
+    cfg_map_seen = 0
+    cfg_hook_calls = 0
+    cfg_guider = _find_cfg_guider(model) if cfg_map else None
+    if cfg_map and cfg_guider is None:
+        cfg_map = False
+        cfg_map_reason = "no_guider"
     prev_lam = None
     prev_denoised = None
     prev_denoised2 = None
@@ -463,6 +685,8 @@ def sample_omni(
         sigma_s = raw[i]
         sigma_t = raw[i + 1]
         lam_s = lams[i]
+        if cfg_map and cfg_state["map"] is not None:
+            cfg_map_steps += 1
 
         # ---- churn ----
         # "karras": relative gamma (Karras eq. 8), capped at sqrt(2)-1
@@ -539,6 +763,25 @@ def sample_omni(
             )
             break
 
+        # ---- history for the two spatial controls --------------------------
+        # Skipped steps reconstruct x0 from the epsilon series; they are not a
+        # model measurement, so they must not enter the Runge stencil.
+        if px_order and not skipped:
+            px_hist.insert(0, (lam_from, denoised.detach()))
+            del px_hist[3:]
+        if cfg_map and cfg_state["map"] is None:
+            frac = ((lam_s - lams[0]) / lam_span
+                    if abs(lam_span) > 1e-12 else 1.0)
+            fresh = cfg_state["calls"] > cfg_hook_calls
+            if fresh:
+                cfg_hook_calls = cfg_state["calls"]
+            if fresh and frac >= cfg_map_start:
+                cmap = _cfg_map_from_gap(cfg_state["cond"], cfg_state["uncond"],
+                                         cfg_map_floor, cfg_map_pool)
+                if cmap is not None:
+                    cfg_state["map"] = cmap
+                    cfg_map_seen = 1
+
         h = lams[i + 1] - lam_from
         if h <= 0.0 or not math.isfinite(h):
             x = denoised
@@ -599,6 +842,15 @@ def sample_omni(
                 else:
                     kappa = 0.5 * h * (1.0 + eta_i)
                 x0_eff = denoised + kappa * (denoised - hist_x0[0]) / h_prev
+                if px_order and len(px_hist) >= 3:
+                    mask = _px_order_mask(px_hist, lam_from + kappa,
+                                          px_order_tol, px_order_smooth)
+                    if mask is not None:
+                        x0_eff = denoised + mask * (x0_eff - denoised)
+                        px_steps += 1
+                        px_mask_sum += float(mask.mean())
+                        _mn = float(mask.min())
+                        px_mask_min = _mn if px_mask_min is None else min(px_mask_min, _mn)
 
         # ---- guidance: CFG++ uses the unconditional prediction as noise ----
         # x_t = (sigma_t/sigma_s) * (x - alpha_s*u) + alpha_t * x0
@@ -657,6 +909,22 @@ def sample_omni(
         prev_denoised2, prev_denoised = prev_denoised, denoised
         prev_lam = lam_from
 
+    if cfg_map and not cfg_map_seen and cfg_map_reason is None:
+        cfg_map_reason = "no_gap" if cfg_state["calls"] else "no_uncond"
+    LAST_STATS.update({
+        "px_order": bool(px_order),
+        "px_order_tol": round(float(px_order_tol), 6),
+        "px_order_steps": int(px_steps),
+        "px_order_mean": (round(px_mask_sum / px_steps, 4) if px_steps else None),
+        "px_order_min": (round(px_mask_min, 4) if px_mask_min is not None else None),
+        "cfg_map": bool(cfg_map),
+        "cfg_map_built": bool(cfg_map_seen),
+        "cfg_map_steps": int(cfg_map_steps),
+        "cfg_map_reason": cfg_map_reason,
+        "cfg_map_floor": round(float(cfg_map_floor), 4),
+        "cfg_map_start": round(float(cfg_map_start), 4),
+        "cfg_map_region": int(cfg_map_pool),
+    })
     return x
 
 
@@ -689,6 +957,19 @@ DEFAULTS = dict(
     skip_min_abs=1e-6,
     skip_min_rel=1e-6,
     skip_max_rel=50.0,
+    # Optional spatial controls, ported from PD-AOS and OFF by default.  The
+    # defaults are SAFE FALLBACKS, not measured optima: `px_order_tol` 2.0 is the
+    # value at which the gate was neutral on Krea2 at 8 steps (SSIM to a 40-step
+    # reference 0.8617 vs 0.8620 without it; 0.05 scored 0.8477, a real loss), and
+    # `cfg_map_floor` 0.85 is PD-AOS's own shipped floor.  Neither has an
+    # image-preference measurement behind it yet; see PD_AOS_AUDIT.md.
+    px_order=False,
+    px_order_tol=2.0,
+    px_order_smooth=True,
+    cfg_map=False,
+    cfg_map_floor=0.85,
+    cfg_map_start=0.5,
+    cfg_map_pool=8,
 )
 
 # A/B presets exposed by the full sampler node. Each is a delta on DEFAULTS.
@@ -704,6 +985,8 @@ AB_PRESETS = {
     "H: exact kernel": {"x0_average": "exact"},
     "I: SDE eta 0.3": {"eta": 0.3},
     "J: no gate": {"min_step_ratio": 0.0},
+    "K: per-pixel order": {"px_order": True},
+    "L: region CFG map": {"cfg_map": True},
 }
 
 # Registered preset variants (each also selectable through the Sampler node).

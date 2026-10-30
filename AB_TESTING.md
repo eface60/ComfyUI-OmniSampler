@@ -24,6 +24,8 @@ only the settings it mentions, so the rest keeps your knob values.
 | `H: exact kernel` | `x0_average=exact` | measured worse than `ab2` |
 | `I: SDE eta 0.3` | `eta=0.3` | stochastic; different image by design |
 | `J: no gate` | `min_step_ratio=0` | disables the step-ratio guard |
+| `K: per-pixel order` | `px_order=True` | experimental PD-AOS port; a tight tolerance cost 0.014 SSIM on Krea2 @8, a loose one was neutral (see `PD_AOS_AUDIT.md`) |
+| `L: region CFG map` | `cfg_map=True` | experimental PD-AOS port; needs cfg > 1, moves MOSS @8 by 0.0142 image RMS (SSIM 0.9824) |
 
 ## Suggested way to compare
 

@@ -1,0 +1,70 @@
+{
+ "files": 2210,
+ "stage2_runs": 691,
+ "stage2_with_map": 330,
+ "stage2_no_map": 361,
+ "stage2_reasons": {
+  "none": 361
+ },
+ "stage2_cfg1": 0,
+ "stage2_cfg_gt1": 691,
+ "map_uniform": 0,
+ "map_min_over_max": {
+  "n": 475,
+  "p10": 0.8499961669792159,
+  "p50": 0.8500000000000001,
+  "p90": 0.8500042191039733,
+  "mn": 0.8499877491016008,
+  "mx": 0.8500118497452305
+ },
+ "map_steps_per_run": {
+  "p10": 0.0,
+  "p50": 0.0,
+  "p90": 2.0,
+  "mn": 0,
+  "mx": 7
+ },
+ "stage1_runs": 922,
+ "stage1_ramped": 922,
+ "stage1_flat_half": 0,
+ "stage1_never_reached_base": 24,
+ "ord_mean_all": {
+  "n": 61515,
+  "p10": 1.0,
+  "p50": 1.144,
+  "p90": 1.945
+ },
+ "runs_with_ord_gt1": 2127,
+ "spx_all": {
+  "n": 55094,
+  "p50": 0.0463,
+  "p90": 0.2577700000000004,
+  "mx": 1.0
+ },
+ "runs_with_spx": 1408,
+ "lf_m_abs": {
+  "n": 84778,
+  "p10": 0.0006,
+  "p50": 0.0025,
+  "p90": 0.0045,
+  "mx": 0.0325
+ },
+ "runs_with_lf_gt1pct": 796,
+ "lf_rho": {
+  "n": 84778,
+  "p50": 0.0037,
+  "p90": 0.017,
+  "mx": 0.062
+ },
+ "lf_inject": {
+  "applied": 54167,
+  "skipped:converged": 1717,
+  "off:distilled": 8381
+ },
+ "files_total": 2231,
+ "runs_valid": 2210,
+ "runs_rejected": 21,
+ "rejected_reasons": {
+  "no step records": 21
+ }
+}

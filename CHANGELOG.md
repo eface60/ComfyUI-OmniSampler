@@ -1,4 +1,39 @@
-﻿## v1.4.2 — 2026-10-30
+## v1.5.0 — 2026-10-30
+
+### Added
+
+* **Two optional spatial controls, ported from PD-AOS and OFF by default**
+  (`px_order`, `cfg_map`; appended to both nodes' widget lists so saved
+  positional values keep their slots):
+  * `px_order` / `px_order_tol`: per-pixel Lagrange-remainder gate on the
+    order-2 x0 extrapolation; pixels over the bound run as order 1. No extra
+    NFE. Default tolerance 2.0, the value measured neutral on Krea2 @8 steps.
+  * `cfg_map` / `cfg_map_floor` / `cfg_map_start`: late per-region guidance
+    map measured from the run's own cond/uncond gap. Needs cfg > 1 and is
+    refused with CFG++.
+  * `LAST_STATS` reports the reachability counters; `OmniKSampler` writes them
+    into its config string, and A/B presets K/L drive each control.
+* `tools/verify_spatial.py`: OFF is bit-identical to HEAD (side-by-side module
+  load), ON reaches its site, a no-op value is bit-identical, and the analytic
+  mask/map algebra is checked.
+* `tools/spatial_ab.py`: same-seed A/B on a real model with a repeated-base
+  reproducibility control.
+* `PD_AOS_AUDIT.md`: what the three PD-AOS mechanisms actually did (corpus
+  census of 2,210 runs + direct A/B), what was ported, and what was not.
+
+### Findings
+
+* PD-AOS's per-pixel CFG map is an 8x8 region map from a 16 px prompt probe,
+  floors the late guidance delta at 0.85, and is **inert on short `simple`
+  schedules**: its ramp starts at `1 - s/sigma_max = 0.7`, so a 12-step MOSS
+  schedule ending at sigma 0.314 never starts it (`stage1 == stage2` bit-exact).
+* PD-AOS's per-pixel order is real but settles near order 1 (median `ord_mean`
+  1.144; second-order on 4.6% of pixels), and porting the gate at a tight
+  tolerance costs accuracy (Krea2 @8: 0.8477 vs 0.8636 SSIM). It ships off.
+* PD-AOS's local fields move the drift term by a median 0.25% and could not be
+  separated from run-to-run drift; not ported.
+
+## v1.4.2 — 2026-10-30
 
 ### Fixed
 
