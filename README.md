@@ -4,13 +4,15 @@ A single diffusion sampler that recombines the measured best parts of ComfyUI's
 45 built-in samplers, and fixes the parts that are only correct for
 epsilon-prediction models. It installs as a normal custom node, registers three
 names in the stock **KSampler / KSamplerAdvanced / KSamplerSelect** dropdowns,
-and exposes a node with every knob.
+and exposes two nodes that share every sampler knob: a full KSampler with an
+A/B preset switch, and a SAMPLER-object node for
+**SamplerCustom / SamplerCustomAdvanced**.
 
 ```
 custom_nodes/ComfyUI-OmniSampler/
 â”œâ”€â”€ __init__.py        # registers the sampler names on import
 â”œâ”€â”€ omni_core.py       # the integrator (only file needed at runtime)
-â”œâ”€â”€ omni_nodes.py      # Sampler node + name registration
+â”œâ”€â”€ omni_nodes.py      # both nodes + name registration
 â”œâ”€â”€ ANALYSIS.md        # what each built-in sampler does and what was reused
 â”œâ”€â”€ README.md          # this file
 â””â”€â”€ tools/             # verification + benchmarks (not loaded by ComfyUI)
@@ -23,6 +25,7 @@ custom_nodes/ComfyUI-OmniSampler/
     â”œâ”€â”€ sd_cfgpp.py        # real-image check of CFG++ at cfg=1
     â”œâ”€â”€ diag_steps.py      # per-step divergence diagnostic
     â”œâ”€â”€ test_node.py       # registration + KSAMPLER end-to-end test
+    â”œâ”€â”€ test_node_parity.py # node parity + every tooltip + widget wiring
     â”œâ”€â”€ verify_spatial.py  # OFF-identity + connectivity for the spatial controls
     â”œâ”€â”€ spatial_ab.py      # real-model A/B for those controls
     â””â”€â”€ sd_bench.py        # real SDXL image comparison
@@ -65,24 +68,46 @@ names or use **Omni-Hybrid Sampler (select)** for full control.
 6. **Order reduction on the last real step** (`lower_order_to_end=1`), because
    Karras-like schedules end with a huge `h` where extrapolation hurts.
 
-## Parameters (defaults are the measured best)
+## Parameters (shipped defaults)
+
+Both nodes expose these same sampler widgets. The full KSampler additionally
+owns the model/conditioning/latent/seed/steps/cfg/scheduler/denoise inputs,
+which a SAMPLER object cannot own; its `config` output and console line are its
+only extra reporting. Every widget has a tooltip in ComfyUI (including what each
+combo choice does).
+
+Most defaults are measured best. `px_order` and `cfg_map` ship OFF with
+safe-fallback values, because their measurement is a caution, not a win; see the
+spatial section below.
 
 | input | default | meaning |
 |---|---|---|
 | `order` | 2 | history order. 2 for `exp` (3+ is limited by start-up), 1â€“4 for `ab` |
 | `integrator` | `exp` | `exp` = exponential in logSNR (all features); `ab` = Adams-Bashforth in sigma, deterministic only |
 | `eta` | 0.0 | SDE strength (0 = ODE). `omni_hybrid_sde` uses 0.5 |
-| `s_noise` | 1.0 | noise multiplier (also scales churn) |
-| `corrector` | `auto` | trapezoidal corrector on `none/first/last/first_last` steps (+1 NFE each); `auto` = `first` for eps, `none` for flow (measured, see below) |
+| `s_noise` | 1.0 | noise multiplier (SDE noise and churn noise) |
+| `eta_window` | `0.10,0.90` | trajectory fractions where SDE noise is injected |
+| `s_churn` | 0.0 | churn: re-noise the state before the model call |
+| `churn_mode` | `karras` | `karras` = relative law (euler/heun); `gamma` = comfyui-ppm's euler_gamma law |
+| `noise_mode` | `brownian` | Brownian-tree correlated noise or white noise (only when `eta > 0`) |
+| `corrector` | `first` | trapezoidal corrector on none/first/last/first_last steps (+1 NFE each); `auto` = first for eps, none for flow (heuristic) |
 | `lower_order_to_end` | 1 | first order for the last N real steps |
 | `cfg_pp` | false | CFG++ (costs +1 model call per step when cfg == 1) |
 | `cfg_pp_strength` | 0.5 | 0 = plain sampling, 1 = reference CFG++; see below |
 | `x0_average` | `ab2` | `ab2` = DPM++(2M) coefficient; `exact` = quadrature kernel moment |
 | `min_step_ratio` | 0.5 | disable extrapolation when the step grows by >2x (0 = off) |
-| `eta_window` | `0.10,0.90` | trajectory fraction where noise is injected |
-| `s_churn` | 0.0 | Karras churn at high sigma |
-| `noise_mode` | `brownian` | temporally correlated (Brownian tree) or white noise |
+| `skip_every` | 1 | 1 = evaluate every step; N = evaluate every Nth step (experimental) |
+| `skip_order` | 2 | epsilon-extrapolation order on skipped steps (1â€“3) |
 | `final_extrapolate` | 0.0 | blend of an `x0 -> sigma=0` extrapolation (available, no measured gain) |
+| `px_order` | false | per-pixel order-2 gate; see the spatial section |
+| `px_order_tol` | 2.0 | allowed Lagrange-remainder error (multiple of local x0 RMS) |
+| `cfg_map` | false | late 8Ã—8 per-region CFG map; needs cfg > 1 and no CFG++ |
+| `cfg_map_floor` | 0.85 | fraction of the late guidance delta kept in the lowest-gap region |
+| `cfg_map_start` | 0.5 | trajectory fraction where the cond/uncond gap is measured |
+
+The same A/B preset rows are available on both nodes through `variant`.
+A preset overrides only the settings it names, so the remaining knobs keep their
+values; choose `custom (use knobs)` to use every knob as set.
 
 Cost: **1 NFE per step + 1** (the step-0 corrector). `eta=0` and `cfg_pp=false`
 add nothing else.

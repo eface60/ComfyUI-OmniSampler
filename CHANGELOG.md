@@ -1,4 +1,41 @@
-﻿## v1.5.1 — 2026-10-31
+﻿## v1.5.2 — 2026-10-31
+
+### Fixed
+
+* **The two nodes now expose the same sampler knobs.** `OmniSamplerSelect`
+  gained `churn_mode`, `skip_every`, `skip_order` and the A/B `variant` switch;
+  `OmniKSampler` gained `eta_window`. The widgets are appended to each node's
+  existing order, so positional values in saved workflows keep their slots. The
+  only remaining difference is the KSampler's own I/O (model / conditioning /
+  latent / seed / steps / cfg / scheduler / denoise), which a SAMPLER object
+  cannot own.
+* **`eta_window` was unusable in the KSampler.** The node had no widget for it,
+  and the sampler expects a `(low, high)` tuple while the widget is a string.
+  Both nodes now parse it through `_parse_eta_window`; invalid input falls back
+  to `0.10,0.90` instead of being forwarded to `sample_omni`, which expects
+  exactly two values.
+* **Every sampler widget has a tooltip, and every combo names each of its
+  choices** with what it does and when it is ignored (e.g. `ab` ignores
+  `cfg_pp`/`corrector`/`px_order`; `px_order` needs order >= 2; `skip_order`
+  only applies when `skip_every > 1`). The KSampler's model/conditioning/seed/
+  steps/cfg/scheduler/denoise inputs have tooltips too.
+* Both nodes' `INPUT_TYPES` are generated from one `_KNOB_SPECS` definition, so
+  a knob's range, default or tooltip cannot drift between them. Defaults still
+  come from `omni_core.DEFAULTS`; `tools/test_node_parity.py` asserts both
+  nodes' defaults agree and remain a valid preset/range.
+
+No sampler behaviour changed for a default build: the new widgets carry the
+same values `sample_omni` already defaulted to, and `variant` defaults to the
+empty preset A.
+
+### Added
+
+* `tools/test_node_parity.py`: knob-set parity, v1.5.1 widget-order prefix,
+  default agreement, tooltip presence + per-choice coverage, and a wiring proof
+  that both nodes emit every knob into the `sample_omni` partial (`eta_window`
+  as a tuple, including a preset override and a default-build negative control).
+
+## v1.5.1 — 2026-10-31
 
 ### Measurement: "it feels slow" was warmup, not NFE
 

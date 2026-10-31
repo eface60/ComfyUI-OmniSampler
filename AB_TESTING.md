@@ -4,7 +4,9 @@
 negative / latent / seed / steps / cfg / scheduler / denoise, every Omni knob,
 and a `variant` switch that selects a preset row. It returns the latent plus a
 `config` string (also printed to the console) so two runs can be told apart in
-the metadata.
+the metadata. The same `variant` switch and knob set are on
+`Omni-Hybrid Sampler (select)` for SamplerCustom / SamplerCustomAdvanced; that
+node returns the SAMPLER instead of a latent, so it has no config string.
 
 Pick `custom (use knobs)` to drive the knobs yourself; any named preset overrides
 only the settings it mentions, so the rest keeps your knob values.
@@ -31,8 +33,9 @@ only the settings it mentions, so the rest keeps your knob values.
 
 1. Fix the seed, steps, cfg and scheduler.
 2. Queue variant A, then the variant you want to compare.
-3. Each run prints `evals~N`; compare at **equal NFE**, not equal step count —
-   `skip_every=2` at 12 steps costs about as much as plain at 7.
+3. Each run prints `evals=measured/estimated`; compare at **equal NFE**, not
+   equal step count — `skip_every=2` at 12 steps costs about as much as plain
+   at 7.
 4. The `config` string lands in the PNG metadata, so you can audit later which
    row produced which image.
 

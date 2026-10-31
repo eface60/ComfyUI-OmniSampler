@@ -1,8 +1,9 @@
 ﻿"""ComfyUI-OmniSampler -- a combined diffusion sampler.
 
 Adds three sampler names to the stock KSampler / KSamplerSelect dropdowns
-(omni_hybrid, omni_hybrid_sde, omni_hybrid_cfg_pp) plus a node that exposes
-every knob.
+(omni_hybrid, omni_hybrid_sde, omni_hybrid_cfg_pp) plus two nodes that expose
+the same sampler knobs: a full KSampler with an A/B preset switch, and a
+SAMPLER-object node for SamplerCustom / SamplerCustomAdvanced.
 """
 
 from .omni_nodes import (
