@@ -180,9 +180,10 @@ _KNOB_SPECS = {
             "default": DEFAULTS["cfg_pp"],
             "tooltip": (
                 "CFG++ guidance: use the unconditional prediction as the noise "
-                "estimate in the step. It needs an unconditional pass, so with "
-                "cfg = 1 it disables ComfyUI's cfg1 shortcut and costs one extra "
-                "model call per step. It is disabled with cfg_map, and it adds "
+                "estimate in the step. It needs an unconditional pass, so at "
+                "cfg = 1 it disables ComfyUI's cfg1 shortcut and doubles the "
+                "model batch (measured 17.5 s -> 35.5 s at 1024px, 10 steps; "
+                "free at cfg > 1). It is disabled with cfg_map, and it adds "
                 "guidance even at cfg = 1, so do not use it on distilled cfg-1 "
                 "models. The ab integrator ignores it (exp runs)."
             ),
@@ -639,6 +640,8 @@ class OmniKSampler:
             f"evals={omni_core.LAST_STATS.get('calls', evals + extra)}"
             f"/{evals + extra} | " + ", ".join(f"{k}={v}" for k, v in sorted(delta.items()))
             + spatial
+            + (" | cfg++ batch x2 (cfg=1 uncond pass forced)" if opts.get("cfg_pp") and cfg <= 1.0
+               else " | cfg++ free (uncond already evaluated)" if opts.get("cfg_pp") else "")
         )
         print(f"[OmniKSampler] {summary}")
         out = dict(latent)

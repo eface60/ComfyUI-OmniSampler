@@ -1,5 +1,36 @@
 ﻿## v1.5.2 — 2026-10-31
 
+### Measurement: CFG++ costs 2x at cfg = 1, nothing at cfg > 1
+
+Krea2 @1024, 10 steps, `corrector=none` in every arm:
+
+| arm | time |
+|---|---|
+| cfg 1, plain | 17.54 s |
+| cfg 1, `cfg_pp=1.0` | 35.45 s |
+| cfg 3.5, plain | 35.03 s |
+| cfg 3.5, `cfg_pp=1.0` | 35.19 s |
+
+CFG++ needs the unconditional prediction `u`. At cfg = 1 ComfyUI normally skips
+the unconditional pass entirely, and `disable_cfg1_optimization=True` turns that
+back on, so the model batch doubles. At cfg > 1 the unconditional pass happens
+anyway, so CFG++ is free. The number of `calc_cond_batch` calls is 10 in all
+four arms: the cost is in the batch, not in extra calls, which is why the call
+counter alone could not show it.
+
+On distilled cfg-1 models it is also the wrong choice independently of cost
+(measured earlier: Krea2 10 steps 0.9432 with CFG++ vs 0.9710 without).
+
+### Changed
+
+* The A/B node's `config` string now says which case applies:
+  `cfg++ batch x2 (cfg=1 uncond pass forced)` or
+  `cfg++ free (uncond already evaluated)`.
+* Corrected the `cfg_pp` tooltip: it previously said "one extra model call per
+  step", which is false — the call count is unchanged and the batch doubles.
+* `tools/cfgpp_cost.py` reproduces the table above.
+## v1.5.2 — 2026-10-31
+
 ### Fixed
 
 * **The two nodes now expose the same sampler knobs.** `OmniSamplerSelect`
@@ -281,6 +312,7 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+
 
 
 
