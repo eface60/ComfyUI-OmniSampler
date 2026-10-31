@@ -554,6 +554,8 @@ def sample_omni(
     n_steps = len(sigmas) - 1
     if n_steps <= 0:
         return x
+    n_calls = 0      # real model evaluations, for the node's diagnostics
+    n_skipped = 0
     px_order = bool(px_order)
     px_order_tol = max(1e-4, float(px_order_tol))
     cfg_map = bool(cfg_map)
@@ -734,12 +736,15 @@ def sample_omni(
             if valid_eps_hat(eps_hat, prev_eps, skip_min_abs, skip_min_rel, skip_max_rel):
                 denoised = (x - eps_hat * sig_from) / alpha_from
                 skipped = True
+                n_skipped += 1
             else:
                 denoised = model(x, sigma_eval * s_in, **extra_args)
+                n_calls += 1
                 eps_hist.insert(0, (lam_from, sig_from, (x - denoised * alpha_from) / sig_from))
                 del eps_hist[4:]
         else:
             denoised = model(x, sigma_eval * s_in, **extra_args)
+            n_calls += 1
             eps_hist.insert(0, (lam_from, sig_from, (x - denoised * alpha_from) / sig_from))
             del eps_hist[4:]
         if callback is not None:
@@ -896,6 +901,7 @@ def sample_omni(
         if i in corr_steps and not cfg_pp:
             x_pred = advance(x0_eff, with_noise=False)
             x0_check = model(x_pred, sig_geo[i + 1] * s_in, **extra_args)
+            n_calls += 1
             x0_eff = 0.5 * (x0_eff + x0_check)
             # the extra evaluation must not leak its (later) uncond into history
             uncond_denoised = u_this_step
@@ -912,6 +918,10 @@ def sample_omni(
     if cfg_map and not cfg_map_seen and cfg_map_reason is None:
         cfg_map_reason = "no_gap" if cfg_state["calls"] else "no_uncond"
     LAST_STATS.update({
+        "calls": int(n_calls),
+        "steps": int(n_steps),
+        "skipped": int(n_skipped),
+        "corrector_steps": int(len(corr_steps) if not cfg_pp else 0),
         "px_order": bool(px_order),
         "px_order_tol": round(float(px_order_tol), 6),
         "px_order_steps": int(px_steps),

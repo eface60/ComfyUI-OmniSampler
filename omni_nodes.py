@@ -401,7 +401,8 @@ class OmniKSampler:
                 if k.startswith(("px_order", "cfg_map")))
         summary = (
             f"variant={variant} flow={flow} steps={n} cfg={cfg} scheduler={scheduler} "
-            f"evals~{evals + extra} | " + ", ".join(f"{k}={v}" for k, v in sorted(delta.items()))
+            f"evals={omni_core.LAST_STATS.get('calls', evals + extra)}"
+            f"/{evals + extra} | " + ", ".join(f"{k}={v}" for k, v in sorted(delta.items()))
             + spatial
         )
         print(f"[OmniKSampler] {summary}")

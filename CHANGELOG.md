@@ -1,4 +1,42 @@
-## v1.5.0 — 2026-10-30
+﻿## v1.5.1 — 2026-10-31
+
+### Measurement: "it feels slow" was warmup, not NFE
+
+Reported: euler 13 s vs omni 39 s on the same graph. Measured on Krea2 @1024,
+10 steps, this machine:
+
+| run | total |
+|---|---|
+| euler cold | 24.33 s |
+| euler warm | 10.14 s |
+| omni cold | 10.36 s |
+| omni warm | 10.23 s |
+| omni warm + previews | 10.00 s |
+
+* Real model evaluations (counted at `calc_cond_batch`, not estimated):
+  euler 10, omni 11 (10 steps + the step-0 corrector),
+  omni `corrector=none` 10, omni `skip_every=2` 7, `eta=0.3` 11.
+* Sampler overhead excluding model calls: **0.03 s** for the whole 10-step run.
+* Per-call model time is the same for both (1.04 s omni vs 1.21 s euler warm).
+* Previews: no measurable cost at this size.
+* `eta=0.3` with the Brownian tree: +0.73 s of CPU overhead per 10 steps at
+  1024 px (tree bridging per step); `noise_mode=white` is +0.04 s.
+
+So omni costs one extra evaluation (the corrector) and otherwise runs at
+euler's speed; the 3x was the cold first run after a model load.
+
+### Changed
+
+* The A/B node now reports `evals=measured/estimated` from `LAST_STATS`
+  (`calls`, `steps`, `skipped`, `corrector_steps` are recorded by
+  `sample_omni`) instead of only an estimate. It also exposed that the skip
+  estimate was optimistic: variant C measured 7 calls where the estimate said
+  6, because the guard rails rejected one extrapolation and fell back to a real
+  evaluation.
+* New tools: `tools/nfe_audit.py` (call counts + time per variant),
+  `tools/time_breakdown.py` (model vs overhead), `tools/time_coldwarm.py`
+  (cold/warm/previews).
+## v1.5.0 â€” 2026-10-30
 
 ### Added
 
@@ -33,11 +71,11 @@
 * PD-AOS's local fields move the drift term by a median 0.25% and could not be
   separated from run-to-run drift; not ported.
 
-## v1.4.2 — 2026-10-30
+## v1.4.2 â€” 2026-10-30
 
 ### Fixed
 
-* **`eta > 0` crashed with negative seeds** —
+* **`eta > 0` crashed with negative seeds** â€”
   `ValueError: expected non-negative integer` from numpy's `SeedSequence`,
   reached via `BrownianTreeNoiseSampler` -> `torchsde.BrownianTree`. ComfyUI
   seed nodes can emit negative integers even though the widget declares
@@ -53,7 +91,7 @@
 
 * MOSS with eta=0.3: seeds 7, -1, -123456789 and 2**64-1 all run and produce
   different latents (norms 302.0 / 288.5 / 264.3 / 297.5).
-## v1.4.1 — 2026-10-29
+## v1.4.1 â€” 2026-10-29
 
 ### Fixed
 
@@ -71,7 +109,7 @@
 Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
 ((1,4,64,64) -> (1,128,64,64)); both finite, correct shape.
 `tools/test_node_emptylatent.py` is the regression test.
-## v1.4 — 2026-10-29
+## v1.4 â€” 2026-10-29
 
 ### Added
 
@@ -90,7 +128,7 @@ Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
 
 * Presets marked experimental (`C`, `C2`) are unproven; `B` and `C` are the two
   open questions left by the experiment round (see AB_TESTING.md).
-## v1.3 — 2026-10-29
+## v1.3 â€” 2026-10-29
 
 ### Fixed (measurement, not sampler)
 
@@ -113,7 +151,7 @@ Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
 
 * `tools/latent_bench.py` (latent-space comparison, decoded previews optional)
   and `CORRECTIONS.md`.
-## v1.2 — 2026-10-29
+## v1.2 â€” 2026-10-29
 
 ### Fixed
 
@@ -137,7 +175,7 @@ Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
   (sigma_max 1.0) at its default `s_sigma_diff=2.0`.
 * ppm's `cfg_pp` branch in that sampler is eps-only (`alpha_t == 1`), so on flow
   models it over-guides: MOSS cfg 3.5 @12 steps 0.580 vs 0.815 for plain omni.
-## v1.1 — 2026-10-29
+## v1.1 â€” 2026-10-29
 
 Anima (Cosmos-derived, Qwen 0.6B TE only) measured too: the step-0 corrector
 *helps* there by ~0.004, against -0.016..-0.025 on Krea2/MOSS, so corrector=`auto`
@@ -163,7 +201,7 @@ int8 @ cfg 3.5, PixelDiT bf16) in addition to the analytic harness and SDXL.
   `tools/flow_bench.py` (PixelDiT).
 # Changelog
 
-## v1.0 â€” 2026-10-29
+## v1.0 Ã¢â‚¬â€ 2026-10-29
 
 First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 (a junction to this repository, so the repo *is* what ComfyUI loads).
@@ -206,6 +244,7 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+
 
 
 
