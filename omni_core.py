@@ -1,4 +1,4 @@
-"""Omni-Hybrid sampler: one integration engine, per-regime components.
+﻿"""Omni-Hybrid sampler: one integration engine, per-regime components.
 
 Geometry that holds for BOTH model families ComfyUI supports
 (epsilon/v-prediction and flow matching):
@@ -592,7 +592,11 @@ def sample_omni(
     # hook makes the feature silently inert).
     uncond_denoised = None
     cfg_state = {"map": None, "cond": None, "uncond": None, "calls": 0}
-    if cfg_pp or cfg_map:
+    # strength 0 makes CFG++ exactly plain sampling (u is blended away), so the
+    # hook -- and with it disable_cfg1_optimization, which forces the
+    # unconditional pass at cfg=1 -- must not be installed at all.
+    cfgpp_active = bool(cfg_pp) and float(cfg_pp_strength) > 0.0
+    if cfgpp_active or cfg_map:
         def post_cfg_function(args):
             nonlocal uncond_denoised
             u = args.get("uncond_denoised")
@@ -621,7 +625,7 @@ def sample_omni(
         model_options = dict(extra_args.get("model_options", {}))
         extra_args["model_options"] = comfy.model_patcher.set_model_options_post_cfg_function(
             model_options, post_cfg_function,
-            disable_cfg1_optimization=bool(cfg_pp),
+            disable_cfg1_optimization=bool(cfgpp_active),
         )
 
     # ---- corrector schedule --------------------------------------------
@@ -681,7 +685,7 @@ def sample_omni(
     # Adams-Bashforth in sigma shares the ODE dx/dsigma = (x - x0)/sigma, which
     # holds for both families, but it has no exponential linearisation and no
     # OU noise term, so it is only used for the deterministic non-CFG++ case.
-    use_ab = (str(integrator).lower() == "ab") and eta <= _ETA_EPS and not cfg_pp
+    use_ab = (str(integrator).lower() == "ab") and eta <= _ETA_EPS and not cfgpp_active
 
     for i in comfy.utils.model_trange(n_steps, disable=disable):
         sigma_s = raw[i]
@@ -867,7 +871,7 @@ def sample_omni(
         # prediction (0 = plain sampling, exact) and the unconditional one
         # (1 = faithful CFG++, identical to comfy's euler_cfg_pp).
         u_this_step = uncond_denoised
-        if cfg_pp and u_this_step is not None:
+        if cfgpp_active and u_this_step is not None:
             s_u = float(cfg_pp_strength)
             s_u = 0.0 if s_u < 0.0 else (1.0 if s_u > 1.0 else s_u)
             if s_u < 1.0:
@@ -898,7 +902,7 @@ def sample_omni(
         # Not used with CFG++: the corrector refines the guided x0 but cannot
         # re-evaluate the unconditional prediction at the predicted state, so it
         # would shift the effective guidance.
-        if i in corr_steps and not cfg_pp:
+        if i in corr_steps and not cfgpp_active:
             x_pred = advance(x0_eff, with_noise=False)
             x0_check = model(x_pred, sig_geo[i + 1] * s_in, **extra_args)
             n_calls += 1
@@ -921,7 +925,7 @@ def sample_omni(
         "calls": int(n_calls),
         "steps": int(n_steps),
         "skipped": int(n_skipped),
-        "corrector_steps": int(len(corr_steps) if not cfg_pp else 0),
+        "corrector_steps": int(len(corr_steps) if not cfgpp_active else 0),
         "px_order": bool(px_order),
         "px_order_tol": round(float(px_order_tol), 6),
         "px_order_steps": int(px_steps),
@@ -1005,6 +1009,7 @@ VARIANTS = {
     "omni_hybrid_sde": {"eta": 0.5},         # mid-trajectory stochasticity
     "omni_hybrid_cfg_pp": {"cfg_pp": True},  # CFG++ guidance
 }
+
 
 
 

@@ -1,4 +1,38 @@
-﻿## v1.5.2 — 2026-10-31
+﻿## v1.5.4 — 2026-10-31
+
+### Code audit: CFG++ does not run the unconditional twice at cfg > 1
+
+Claim to test: "at cfg 5 both arms do cond+uncond, but cfg_pp is still slower, so
+the unconditional is probably run twice". Reading the path:
+
+* `omni_core.py:595` installs the post-CFG hook only for `cfg_pp`/`cfg_map`; it
+  copies `uncond_denoised` and returns `denoised` untouched. No model call.
+* `omni_core.py:628` sets `disable_cfg1_optimization`, which
+  `comfy/samplers.py::sampling_function` consults only when
+  `math.isclose(cond_scale, 1.0)`; at cfg 5 the unconditional is passed either
+  way, so the flag is a no-op there.
+* The step body (`omni_core.py:874`) only blends `u`; the sampler's one other
+  model call (the corrector) is skipped when CFG++ is active
+  (`omni_core.py:905`), so CFG++ at cfg > 1 makes **one fewer** evaluation.
+* model_options are cloned per run (`inner_sample` ->
+  `create_model_options_clone`), so the flag cannot leak into another pass.
+
+Forward counts (`apply_model`, not estimates): MOSS cfg 3.5 -> 16/16,
+cfg 5 -> 16/16; Krea2 cfg 5 -> 16/16. Only cfg = 1 changes: 8 -> 16.
+
+Interleaved repeats, Krea2 @768, 8 steps, cfg 5, 3 reps each:
+plain median 10.10 s (runs 14.37/10.10/7.71), cfg_pp median 8.72 s
+(runs 14.51/7.55/8.72), ratio 0.86. The per-run spread on identical work is
+7.7-14.5 s, which is what produced the earlier 38% single-shot difference.
+
+### Fixed
+
+* `cfg_pp_strength = 0` made CFG++ exactly plain sampling but still installed the
+  hook, and that forced the unconditional pass at cfg = 1 (2x cost for nothing).
+  All CFG++ decisions now go through `cfgpp_active = cfg_pp and strength > 0`;
+  with strength 0 no hook is installed. Verified bit-identical to plain
+  (max diff 0.0) with the same evaluation count (9 for 8 steps).
+## v1.5.2 — 2026-10-31
 
 ### Measurement: CFG++ costs 2x at cfg = 1, nothing at cfg > 1
 
@@ -312,6 +346,7 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
+
 
 
 
