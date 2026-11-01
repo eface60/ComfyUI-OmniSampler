@@ -1,14 +1,14 @@
 # PD-AOS spatial mechanisms: what worked, what did not, and what was ported
 
-**Scope.** PD-AOS working tree at `G:\AI\comfyui-research-samplers\pd_aos`
-(junction `G:\AI\comfy\custom_nodes\pd_aos`), commit `27db101`
+**Scope.** PD-AOS working tree at `comfyui-research-samplers/pd_aos` (junctioned
+into ComfyUI's `custom_nodes/pd_aos`), commit `27db101`
 (branch `ab-audit-2026-10-19`), engine `research_samplers/aflops.py`. The three
 mechanisms the operator asked about are:
 
-1. **per-pixel CFG** â€” the stage-2 per-region guidance map,
-2. **per-pixel order** â€” the `order_pixel_adaptive` ladder and the
+1. **per-pixel CFG** — the stage-2 per-region guidance map,
+2. **per-pixel order** — the `order_pixel_adaptive` ladder and the
    `second_order_per_pixel` mask,
-3. **local fields** â€” the `lf_*` block/fixel step modulation.
+3. **local fields** — the `lf_*` block/fixel step modulation.
 
 Every number below comes from an artifact produced by the scripts in
 `tools/pd_aos_audit/` (corpus scan) or `tools/verify_spatial.py` /
@@ -25,13 +25,13 @@ Every number below comes from an artifact produced by the scripts in
   is a channel-RMS map of `x0_cond - x0_uncond` at one mid-probe step,
   normalised by its p90 and pooled to 16x16, then to the probe latent.
   On the corpus runs the cond probe runs at 16 px, whose MOSS latent is 8x8:
-  **the "per-pixel" map is 64 regions of 128x128 pixels at 1024Â²** (logged
+  **the "per-pixel" map is 64 regions of 128x128 pixels at 1024²** (logged
   `h=8 w=8 n=64` in `cond_probe_profiles`).
 - Stage 2 normalises that map again to [0,1] (`_cfg_schedule_scale`'s caller,
   `_pn = ((_pn - _pmin) / (_pmax - _pmin))`) and sets
   `map = step_scale * (0.85 + 0.15 * prior)`. The post-CFG hook divides by the
   step's guidance scale, so the realised ratio is **0.85..1.0 of the guidance
-  delta** â€” a 15% floor, never less.
+  delta** — a 15% floor, never less.
 - Stage 1 is a scalar ramp: `scale = base * (0.5 + 0.5*smoothstep(...))`, where
   progress is `t = 1 - s/sigma_max` and the ramp starts at `t = 0.7`
   (`_CFG_SCHEDULE_START`). Stage 2 is only set when the ramp's smoothstep is at
@@ -45,13 +45,13 @@ Every number below comes from an artifact produced by the scripts in
   each order; the chosen candidate is blended with the next-lower one by a
   per-pixel history cosine (`order_pixel_blend`).
 - The **step itself** uses one scalar decay rate:
-  `lam_raw = (delta_v . delta_x) / ||delta_x||Â²` over the whole flattened latent
+  `lam_raw = (delta_v . delta_x) / ||delta_x||²` over the whole flattened latent
   (`_aflops_step`). The per-pixel part is the x0 estimate (and the
   `second_order_per_pixel` mask on the slope term), not the exponential
   coefficient.
 - The engine's own docstring for `_pixel_order_bound` records that the shipped
-  innovation criterion "on a real model settles near order 1 â€” `ord_want`
-  1.03â€“1.23".
+  innovation criterion "on a real model settles near order 1 — `ord_want`
+  1.03–1.23".
 
 ### 1.3 Local fields: a bounded per-pixel multiplier on the drift term
 
@@ -59,13 +59,14 @@ Every number below comes from an artifact produced by the scripts in
   `x = x0 + (1 + m_off) * (s2/s) * (x_input - x0) + (x - x1)`.
 - The amplitude is `amp = 0.15 * clamp`, with `clamp` in [0.10, 0.48]
   (`lf_gains` build in `_aflops_engine_body`), so `|m_off|` is bounded by about
-  0.015â€“0.072; the modal typical value is much smaller (below).
+  0.015–0.072; the modal typical value is much smaller (below).
 
 ---
 
 ## 2. Corpus measurements (2,210 valid runs)
 
-`tools/pd_aos_audit/scan_corpus.py` reads every `G:\AI\comfy\output\aflops\*\log_*.json`
+`tools/pd_aos_audit/scan_corpus.py` reads every
+`%COMFY_DIR%\output\aflops\*\log_*.json` (override with `--root`)
 and validates the fields before using them (range checks, map ordering, `m_min/m_max`
 bounds; eight injected-defect controls all rejected). It counted:
 
@@ -99,8 +100,8 @@ same configuration (`base`, `base2`) as the reproducibility control.
 
 | model / schedule | control `base` vs `base2` | `ppo_off` vs base | `lf_off` vs base |
 |---|---|---|---|
-| MOSS, 12 steps, 1024Â², simple | latent rel 9.3e-2; image RMS 0.00999 | image RMS 0.01039 | 0.00987 |
-| Krea2, 12 steps, 1024Â², simple | latent rel 3.7e-2; image RMS 0.00546 | 0.00355 | 0.01488 |
+| MOSS, 12 steps, 1024², simple | latent rel 9.3e-2; image RMS 0.00999 | image RMS 0.01039 | 0.00987 |
+| Krea2, 12 steps, 1024², simple | latent rel 3.7e-2; image RMS 0.00546 | 0.00355 | 0.01488 |
 
 **The control failed on both models**: PD-AOS's own runs are not reproducible
 within one session on these checkpoints (step 2 already differs at 5e-4
@@ -120,8 +121,8 @@ the largest effect in this audit and it is the *unintended* one: on short
 "simple" schedules the documented "half early, full late" is half throughout.
 
 On a 12-step **Karras** MOSS schedule the ramp does start (1.75 -> 3.50) and
-stage 2 maps steps 6â€“12 at 0.85*cfg. The stage-1 vs stage-2 image difference is
-**0.00161 RMS (0.16% of range, max 3.9%)** â€” real, late, and small, which is
+stage 2 maps steps 6–12 at 0.85*cfg. The stage-1 vs stage-2 image difference is
+**0.00161 RMS (0.16% of range, max 3.9%)** — real, late, and small, which is
 what a 15% scaling of a guidance delta that is itself a small part of the
 prediction should look like.
 
@@ -129,7 +130,7 @@ prediction should look like.
 
 ## 4. Verdicts
 
-### 4.1 Per-pixel CFG â€” real, but not per-pixel, often inert, and small
+### 4.1 Per-pixel CFG — real, but not per-pixel, often inert, and small
 
 **Worked as intended?** Partly. The post-CFG composition, the 0.85 floor and the
 per-step map are wired and act (330 runs, maps logged, 0.16% image effect on the
@@ -149,7 +150,7 @@ over the actual sigma span, not `1 - s/sigma_max`. That is what
 measured from the run's own mid-trajectory cond/uncond gap, so there is no
 probe, no cache, and no extra NFE; it requires cfg > 1 and refuses CFG++.
 
-### 4.2 Per-pixel order â€” real, but its effect was not a win
+### 4.2 Per-pixel order — real, but its effect was not a win
 
 **Worked as intended?** The mechanism is real: the order map is spatially
 varying, and `second_order_per_pixel` masks the slope term per pixel. But the
@@ -162,7 +163,7 @@ above.
 **Worth porting?** Ported in the reduced form omni can support: a per-pixel
 Lagrange-remainder test on the order-2 x0 extrapolation (`px_order`). It costs
 no model call and OFF is bit-identical. But the measurement is a **caution, not
-a win**: on Krea2 at 8 steps (512Â²), SSIM to a 40-step reference was
+a win**: on Krea2 at 8 steps (512²), SSIM to a 40-step reference was
 
 | setting | SSIM |
 |---|---|
@@ -183,7 +184,7 @@ is neutral. The shipped default is therefore `px_order_tol=2.0`, the neutral
 value, and `px_order=False`; a user who wants the gate must choose how strict it
 is, and the tooltip says what the sweep found.
 
-### 4.3 Local fields â€” real but too small to carry
+### 4.3 Local fields — real but too small to carry
 
 **Worked as intended?** The field is computed and applied every step, but its
 typical amplitude is 0.25% of the drift term (p90 0.45%), the refresh is 0.37%
@@ -232,14 +233,14 @@ the OFF path did not move.
 
 `tools/spatial_ab.py` is the operator's A/B: same prompt/seed/schedule, arms
 `base`, `base2` (reproducibility control), `pxo`, `cfgm`, `both`, with
-`LAST_STATS` printed and latent/PNG outputs saved. On Krea2 (8 steps, 512Â²) the
+`LAST_STATS` printed and latent/PNG outputs saved. On Krea2 (8 steps, 512²) the
 base arm is bit-reproducible (control distance 0.0), which is what makes the
-`px_order` numbers in Â§4.2 admissible.
+`px_order` numbers in §4.2 admissible.
 
-On MOSS (8 steps, 512Â², cfg 3.5) the same control is bit-identical, `cfgm`
+On MOSS (8 steps, 512², cfg 3.5) the same control is bit-identical, `cfgm`
 builds its map at step 3 and applies it on 6 steps, and the decoded image moves
 by **0.01424 RMS (SSIM 0.9824 to base)**; `both` moves 0.01190 RMS
-(SSIM 0.9841). That is a real, measurable effect from the corrected map â€” the
+(SSIM 0.9841). That is a real, measurable effect from the corrected map — the
 operator's eye is the instrument for whether it is the one they remember.
 
 ---
@@ -251,25 +252,28 @@ operator's eye is the instrument for whether it is the one they remember.
   above. Porting it would carry the bug or silently change the sampler's default
   guidance; if the operator wants it, it should be a separate, correctly-framed
   feature with its own A/B.
-- **Local fields** (Â§4.3).
+- **Local fields** (§4.3).
 - **The PD-AOS probe stack** (model/cond probes, profile cache, tolerance and
   cap derivation). Nothing here needs it: the ported map is measured from the
   run's own predictions.
 
 ## 7. Reproduce
 
+Run from the repository root, with the ComfyUI venv python (`$env:COMFY_DIR`
+points at your ComfyUI checkout; see [CONTRIBUTING.md](../CONTRIBUTING.md)):
+
 ```powershell
-$py = "G:\AI\comfy\venv\Scripts\python.exe"
+$py = python
 # corpus (2,210 runs; controls must all be REJECTED)
-& $py -X utf8 "G:\AI\agent working folders\generic\omni_sampler\tools\pd_aos_audit\scan_corpus.py" --control
-& $py -X utf8 "G:\AI\agent working folders\generic\omni_sampler\tools\pd_aos_audit\scan_corpus.py"
+& $py -X utf8 tools/pd_aos_audit/scan_corpus.py --control
+& $py -X utf8 tools/pd_aos_audit/scan_corpus.py
 # PD-AOS direct A/B (one model, same prompt/seed; control arm included)
-& $py -X utf8 "G:\AI\agent working folders\generic\omni_sampler\tools\pd_aos_audit\pd_aos_ab.py" krea2 --steps 12 --res 1024 --arms base,base2,ppo_off,lf_off
-& $py -X utf8 "G:\AI\agent working folders\generic\omni_sampler\tools\pd_aos_audit\pd_aos_ab.py" moss --steps 12 --res 1024 --scheduler karras --arms cfg_stage1,cfg_stage2
+& $py -X utf8 tools/pd_aos_audit/pd_aos_ab.py krea2 --steps 12 --res 1024 --arms base,base2,ppo_off,lf_off
+& $py -X utf8 tools/pd_aos_audit/pd_aos_ab.py moss --steps 12 --res 1024 --scheduler karras --arms cfg_stage1,cfg_stage2
 # port connectivity + real-model A/B
-& $py -X utf8 "G:\AI\agent working folders\generic\omni_sampler\tools\verify_spatial.py"
-& $py -X utf8 "G:\AI\agent working folders\generic\omni_sampler\tools\spatial_ab.py" krea2 --steps 8 --res 512 --arms base,base2,pxo
-& $py -X utf8 "G:\AI\agent working folders\generic\omni_sampler\tools\spatial_ab.py" moss --steps 8 --res 512 --arms base,base2,cfgm
+& $py -X utf8 tools/verify_spatial.py
+& $py -X utf8 tools/spatial_ab.py krea2 --steps 8 --res 512 --arms base,base2,pxo
+& $py -X utf8 tools/spatial_ab.py moss --steps 8 --res 512 --arms base,base2,cfgm
 ```
 
 ## 8. Not done
@@ -277,7 +281,7 @@ $py = "G:\AI\comfy\venv\Scripts\python.exe"
 - No multi-seed averaging: every A/B above is one seed. The Krea2 omni control
   was bit-exact, so its differences are real for that seed; the PD-AOS controls
   were not, so those rows are labelled unresolved rather than compared.
-- No operator-eye A/B: Â§4.2's SSIM is an instrument for maths, not appearance.
+- No operator-eye A/B: §4.2's SSIM is an instrument for maths, not appearance.
   `tools/spatial_ab.py` exists so that decision can be made on images.
 - No test of `cfg_map` on a second non-distilled model at another step count;
   one MOSS run is a connectivity pre-flight and a first effect size, not a

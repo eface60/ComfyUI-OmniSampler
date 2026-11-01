@@ -102,12 +102,14 @@ learned denoiser; it is listed here as the one lead that was not run.
 
 ## Reproduction
 
+The three harness scripts live on the experiment branch, not on `main`. Run from
+the repository root, with the ComfyUI venv python (`$env:COMFY_DIR` points at
+your ComfyUI checkout; see [CONTRIBUTING.md](../CONTRIBUTING.md)):
+
 ```powershell
-cd "G:\AI\agent working folders\generic\omni_sampler"
 git switch experiments/integrator-variants
-$env:PYTHONPATH="G:\AI\comfy;$PWD"
-& "G:\AI\comfy\venv\Scripts\python.exe" tools\pece_check.py        # analytic
-& "G:\AI\comfy\venv\Scripts\python.exe" tools\sd_pece_ab.py        # SDXL, equal NFE
-& "G:\AI\comfy\venv\Scripts\python.exe" tools\noise_color_check.py # coloured noise
+& python tools/pece_check.py          # analytic PECE comparison
+& python tools/sd_pece_ab.py          # SDXL, equal NFE
+& python tools/noise_color_check.py   # coloured noise
 git switch main
 ```

@@ -1,8 +1,30 @@
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+*.egg-info/
+
+# Benchmark output: renders, logs, saved latents and per-run JSON
 outputs/
 tools/pd_aos_audit/ab_out/
+*.log
+
+# Archives and OS clutter
 *.zip
+*.bak
+*.orig
 .DS_Store
 Thumbs.db

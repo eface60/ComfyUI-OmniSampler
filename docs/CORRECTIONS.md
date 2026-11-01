@@ -1,4 +1,4 @@
-﻿# Corrections: two measurement bugs that invalidated the real-model numbers
+# Corrections: two measurement bugs that invalidated the real-model numbers
 
 This file records errors found *after* v1.1/v1.2 were tagged. The toy/analytic
 results and the algebraic checks stand; the real-model image numbers did not.
@@ -7,7 +7,7 @@ results and the algebraic checks stand; the real-model image numbers did not.
 
 **Symptom.** Krea2 outputs were 768x61, Anima outputs 768x1. User-visible.
 
-**Cause.** Two separate mistakes in `tools/modern_bench.py`:
+**Cause.** Two separate mistakes in [`tools/modern_bench.py`](../tools/modern_bench.py):
 
 * the Wan 2.1 VAE returns `(B, T, H, W, C)`, but `to_hwc` assumed
   `(B, C, T, H, W)` and indexed axis 2 (`[:, :, 0]`), which is the *height* axis.
@@ -19,7 +19,7 @@ results and the algebraic checks stand; the real-model image numbers did not.
 **Fix.** The latent rank now comes from `latent_format.latent_dimensions`, and
 `to_hwc` squeezes leading singletons and handles `(B,T,H,W,C)`, `(B,C,T,H,W)`,
 `(B,C,H,W)` and `(B,H,W,C)`. Verified: 768x768 RGB out, `assert`ed in
-`tools/latent_bench.py`.
+[`tools/latent_bench.py`](../tools/latent_bench.py).
 
 **Consequence.** Every Krea2 and Anima number in the v1.1 notes (corrector
 comparison, CFG++ at cfg=1, skip/flow verification) was computed on malformed
@@ -68,10 +68,10 @@ the mode is fixed, and the number measures what a sampler is supposed to do
 measured step, so it is affordable on a handful of steps.
 
 Until that is implemented and validated, I do not claim any real-model accuracy
-improvement over v1.0 â€” only the algebraic fixes (CFG++ guidance weighting,
+improvement over v1.0 — only the algebraic fixes (CFG++ guidance weighting,
 churn geometry) and the ppm `euler_gamma` equivalence (2.4e-7).
 
-## Status of the local-error metric (tools/local_metric.py)
+## Status of the local-error metric ([`tools/local_metric.py`](../tools/local_metric.py))
 
 Implemented and running: it re-runs the sampler on a refined sub-schedule from
 the captured `x_i` and compares the denoised predictions at the shared node, so

@@ -25,7 +25,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-COMFY = r"G:\AI\comfy"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 PARENT = os.path.dirname(REPO)

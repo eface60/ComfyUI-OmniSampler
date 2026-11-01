@@ -1,8 +1,8 @@
-﻿"""Mode-free accuracy metric: per-interval local ODE error.
+"""Mode-free accuracy metric: per-interval local ODE error.
 
 With these models, comparing to a high-NFE reference measures which basin the
-trajectory fell into, not integration accuracy (see CORRECTIONS.md).  Inside a
-single interval [sigma_i, sigma_{i+1}] the basin is already decided, so the
+trajectory fell into, not integration accuracy (see docs/CORRECTIONS.md).  Inside
+a single interval [sigma_i, sigma_{i+1}] the basin is already decided, so the
 sampler's step can be checked against a fine sub-solve from the same x_i.
 
 Implementation avoids re-plumbing the guider: it re-runs the *same* sampler on a
@@ -19,8 +19,10 @@ import sys
 
 import torch
 
-COMFY = r"G:\AI\comfy"
-WORK = r"G:\AI\agent working folders\generic"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
+WORK = os.environ.get(
+    "OMNI_WORK", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 sys.path.insert(0, COMFY)
 sys.path.insert(0, WORK)
 sys.path.insert(0, os.path.join(WORK, "omni_sampler"))

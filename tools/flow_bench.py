@@ -15,7 +15,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-COMFY = r"G:\AI\comfy"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
 PARENT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, COMFY)
 sys.path.insert(0, PARENT)

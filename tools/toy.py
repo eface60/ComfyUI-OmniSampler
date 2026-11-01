@@ -1,4 +1,4 @@
-﻿"""Analytic test problem used to validate sampler math.
+"""Analytic test problem used to validate sampler math.
 
 A Gaussian-mixture data distribution gives a closed-form posterior mean
 (Tweedie's denoiser), so any diffusion sampler can be run against an exact

@@ -1,4 +1,4 @@
-﻿"""GPU verification of the two subagent winners on a modern flow model.
+"""GPU verification of two candidate variants on a modern flow model.
 
   1) skip_every=2 (FSampler epsilon extrapolation): 2n steps, ~n evaluations,
      compared against the baseline at n steps (equal NFE).
@@ -20,8 +20,10 @@ import numpy as np
 import torch
 from PIL import Image
 
-COMFY = r"G:\AI\comfy"
-WORK = r"G:\AI\agent working folders\generic"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
+WORK = os.environ.get(
+    "OMNI_WORK", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 PARENT = os.path.join(WORK)
 EXP = os.path.join(WORK, "omni_experiments")
 sys.path.insert(0, COMFY)

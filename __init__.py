@@ -1,4 +1,4 @@
-﻿"""ComfyUI-OmniSampler -- a combined diffusion sampler.
+"""ComfyUI-OmniSampler -- a combined diffusion sampler.
 
 Adds four sampler names to the stock KSampler / KSamplerSelect dropdowns
 (omni_hybrid, omni_hybrid_sde, omni_hybrid_cfg_pp,

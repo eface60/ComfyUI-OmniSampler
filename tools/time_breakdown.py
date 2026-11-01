@@ -8,8 +8,10 @@ import time
 
 import torch
 
-COMFY = r"G:\AI\comfy"
-WORK = r"G:\AI\agent working folders\generic"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
+WORK = os.environ.get(
+    "OMNI_WORK", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 sys.path.insert(0, COMFY)
 sys.path.insert(0, WORK)
 sys.path.insert(0, os.path.join(WORK, "omni_sampler"))

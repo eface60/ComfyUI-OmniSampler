@@ -1,4 +1,4 @@
-﻿"""Real-image comparison on an SDXL checkpoint (EPS family).
+"""Real-image comparison on an SDXL checkpoint (EPS family).
 
 Runs the same seed/prompt through several samplers at a few step counts and
 measures how close each result is to a heavily oversampled reference run of the
@@ -22,7 +22,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-COMFY = r"G:\AI\comfy"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
 PARENT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, COMFY)
 sys.path.insert(0, PARENT)

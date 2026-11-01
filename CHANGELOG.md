@@ -1,4 +1,27 @@
-﻿## v1.5.5 — 2026-11-01
+# Changelog
+
+Newest first. Every entry says what changed and, where it was measured, the
+number behind it; the scripts that produce those numbers are in `tools/`.
+
+## Unreleased
+
+### Repository
+
+* Documentation reorganized: `ANALYSIS.md`, `AB_TESTING.md`, `CORRECTIONS.md`,
+  `EXPERIMENTS.md` and `PD_AOS_AUDIT.md` now live in `docs/`; the README is the
+  entry point and `tools/README.md` indexes the harness.
+* Added `LICENSE` (MIT) and `CONTRIBUTING.md`.
+* Fixed double-encoded UTF-8 in the Markdown files: the README's directory tree,
+  the em dashes in several headings and the section symbols in
+  `docs/PD_AOS_AUDIT.md` had been written as mojibake. Byte-order marks and
+  CRLF line endings removed from all text files.
+* The harness reads `COMFY_DIR`, `OMNI_WORK`, `PD_AOS_DIR` and `AFLOPS_OUT`
+  instead of hard-coded absolute paths. The defaults are unchanged, so existing
+  runs on the author's machine behave identically.
+
+No sampler behaviour changed in this release.
+
+## v1.5.5 — 2026-11-01
 
 ### Added
 
@@ -54,6 +77,7 @@ plain median 10.10 s (runs 14.37/10.10/7.71), cfg_pp median 8.72 s
   All CFG++ decisions now go through `cfgpp_active = cfg_pp and strength > 0`;
   with strength 0 no hook is installed. Verified bit-identical to plain
   (max diff 0.0) with the same evaluation count (9 for 8 steps).
+
 ## v1.5.2 — 2026-10-31
 
 ### Measurement: CFG++ costs 2x at cfg = 1, nothing at cfg > 1
@@ -85,7 +109,6 @@ On distilled cfg-1 models it is also the wrong choice independently of cost
 * Corrected the `cfg_pp` tooltip: it previously said "one extra model call per
   step", which is false — the call count is unchanged and the batch doubles.
 * `tools/cfgpp_cost.py` reproduces the table above.
-## v1.5.2 — 2026-10-31
 
 ### Fixed
 
@@ -160,7 +183,8 @@ euler's speed; the 3x was the cold first run after a model load.
 * New tools: `tools/nfe_audit.py` (call counts + time per variant),
   `tools/time_breakdown.py` (model vs overhead), `tools/time_coldwarm.py`
   (cold/warm/previews).
-## v1.5.0 â€” 2026-10-30
+
+## v1.5.0 — 2026-10-30
 
 ### Added
 
@@ -180,7 +204,7 @@ euler's speed; the 3x was the cold first run after a model load.
   mask/map algebra is checked.
 * `tools/spatial_ab.py`: same-seed A/B on a real model with a repeated-base
   reproducibility control.
-* `PD_AOS_AUDIT.md`: what the three PD-AOS mechanisms actually did (corpus
+* `docs/PD_AOS_AUDIT.md`: what the three PD-AOS mechanisms actually did (corpus
   census of 2,210 runs + direct A/B), what was ported, and what was not.
 
 ### Findings
@@ -195,11 +219,11 @@ euler's speed; the 3x was the cold first run after a model load.
 * PD-AOS's local fields move the drift term by a median 0.25% and could not be
   separated from run-to-run drift; not ported.
 
-## v1.4.2 â€” 2026-10-30
+## v1.4.2 — 2026-10-30
 
 ### Fixed
 
-* **`eta > 0` crashed with negative seeds** â€”
+* **`eta > 0` crashed with negative seeds** —
   `ValueError: expected non-negative integer` from numpy's `SeedSequence`,
   reached via `BrownianTreeNoiseSampler` -> `torchsde.BrownianTree`. ComfyUI
   seed nodes can emit negative integers even though the widget declares
@@ -215,7 +239,8 @@ euler's speed; the 3x was the cold first run after a model load.
 
 * MOSS with eta=0.3: seeds 7, -1, -123456789 and 2**64-1 all run and produce
   different latents (norms 302.0 / 288.5 / 264.3 / 297.5).
-## v1.4.1 â€” 2026-10-29
+
+## v1.4.1 — 2026-10-29
 
 ### Fixed
 
@@ -233,14 +258,15 @@ euler's speed; the 3x was the cold first run after a model load.
 Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
 ((1,4,64,64) -> (1,128,64,64)); both finite, correct shape.
 `tools/test_node_emptylatent.py` is the regression test.
-## v1.4 â€” 2026-10-29
+
+## v1.4 — 2026-10-29
 
 ### Added
 
 * **`Omni-Hybrid KSampler (A/B)`** (`OmniKSampler`): a full sampler node with
   every Omni knob plus an 11-row `variant` preset switch, returning the latent
   and a `config` string (also printed) with an exact `evals~N` count. See
-  AB_TESTING.md for the preset table and how to compare at equal NFE.
+  `docs/AB_TESTING.md` for the preset table and how to compare at equal NFE.
 * `skip_every` / `skip_order` merged into `omni_core` (epsilon Lagrange
   extrapolation with FSampler's guard rails and protection of the first/last
   steps). Default `skip_every=1`; verified the default path is bit-identical to
@@ -251,8 +277,9 @@ Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
 ### Notes
 
 * Presets marked experimental (`C`, `C2`) are unproven; `B` and `C` are the two
-  open questions left by the experiment round (see AB_TESTING.md).
-## v1.3 â€” 2026-10-29
+  open questions left by the experiment round (see `docs/AB_TESTING.md`).
+
+## v1.3 — 2026-10-29
 
 ### Fixed (measurement, not sampler)
 
@@ -263,7 +290,7 @@ Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
 * Discovered that these models have **no converged high-NFE reference**: the
   same seed at 40 vs 80 steps lands in a different composition (SDXL), and
   40->60 steps differ by 7-27% relative L2. Reference-based accuracy numbers on
-  real models are therefore invalid. See CORRECTIONS.md.
+  real models are therefore invalid. See `docs/CORRECTIONS.md`.
 
 ### Changed
 
@@ -274,8 +301,9 @@ Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
 ### Added
 
 * `tools/latent_bench.py` (latent-space comparison, decoded previews optional)
-  and `CORRECTIONS.md`.
-## v1.2 â€” 2026-10-29
+  and `docs/CORRECTIONS.md`.
+
+## v1.2 — 2026-10-29
 
 ### Fixed
 
@@ -299,7 +327,8 @@ Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
   (sigma_max 1.0) at its default `s_sigma_diff=2.0`.
 * ppm's `cfg_pp` branch in that sampler is eps-only (`alpha_t == 1`), so on flow
   models it over-guides: MOSS cfg 3.5 @12 steps 0.580 vs 0.815 for plain omni.
-## v1.1 â€” 2026-10-29
+
+## v1.1 — 2026-10-29
 
 Anima (Cosmos-derived, Qwen 0.6B TE only) measured too: the step-0 corrector
 *helps* there by ~0.004, against -0.016..-0.025 on Krea2/MOSS, so corrector=`auto`
@@ -323,10 +352,8 @@ int8 @ cfg 3.5, PixelDiT bf16) in addition to the analytic harness and SDXL.
   vs 0.9710 for plain omni).
 * Added `tools/modern_bench.py` (Krea2 / MOSS / Anima harness) and
   `tools/flow_bench.py` (PixelDiT).
-# Changelog
 
-## v1.0 Ã¢â‚¬â€ 2026-10-29
-
+## v1.0 — 2026-10-29
 First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 (a junction to this repository, so the repo *is* what ComfyUI loads).
 
@@ -368,13 +395,3 @@ First tagged version. Installed as `custom_nodes/ComfyUI-OmniSampler`
 * 3rd-order multistep was implemented, measured (2.09 vs 2.87 with exact
   history), and removed: the first-order start-up step dominates at practical
   step counts.
-
-
-
-
-
-
-
-
-
-

@@ -29,7 +29,7 @@ import tempfile
 
 import torch
 
-COMFY = r"G:\AI\comfy"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, COMFY)

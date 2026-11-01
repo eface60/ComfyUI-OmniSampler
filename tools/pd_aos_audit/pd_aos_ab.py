@@ -46,8 +46,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-COMFY = r"G:\AI\comfy"
-PD = r"G:\AI\comfyui-research-samplers"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
+PD = os.environ.get("PD_AOS_DIR", r"G:\AI\comfyui-research-samplers")
 sys.path.insert(0, COMFY)
 sys.path.insert(0, PD)
 

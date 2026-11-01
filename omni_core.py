@@ -1,4 +1,4 @@
-﻿"""Omni-Hybrid sampler: one integration engine, per-regime components.
+"""Omni-Hybrid sampler: one integration engine, per-regime components.
 
 Geometry that holds for BOTH model families ComfyUI supports
 (epsilon/v-prediction and flow matching):
@@ -976,7 +976,7 @@ DEFAULTS = dict(
     # value at which the gate was neutral on Krea2 at 8 steps (SSIM to a 40-step
     # reference 0.8617 vs 0.8620 without it; 0.05 scored 0.8477, a real loss), and
     # `cfg_map_floor` 0.85 is PD-AOS's own shipped floor.  Neither has an
-    # image-preference measurement behind it yet; see PD_AOS_AUDIT.md.
+    # image-preference measurement behind it yet; see docs/PD_AOS_AUDIT.md.
     px_order=False,
     px_order_tol=2.0,
     px_order_smooth=True,

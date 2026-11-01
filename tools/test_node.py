@@ -21,7 +21,7 @@ from unittest import mock
 
 import torch
 
-COMFY = r"G:\AI\comfy"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))      # ...\omni_sampler
 PARENT = os.path.dirname(PKG)                                           # ...\generic
 sys.path.insert(0, PKG)

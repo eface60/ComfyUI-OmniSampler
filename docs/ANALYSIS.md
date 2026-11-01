@@ -1,9 +1,9 @@
 # What every built-in ComfyUI sampler does — and what Omni-Hybrid takes from it
 
 Scope: the 45 samplers in `comfy/samplers.py::SAMPLER_NAMES` / `KSAMPLER_NAMES`
-(this install: ComfyUI 0.42.5, `G:\AI\comfy`), i.e. the implementations in
+(ComfyUI 0.42.5), i.e. the implementations in
 `comfy/k_diffusion/sampling.py` plus `uni_pc`/`ddim` in `comfy/samplers.py`.
-Line numbers refer to this install.
+Line numbers refer to that version.
 
 This is an engineering review, not a survey of papers: for every sampler it
 states the update rule as implemented, what it is good and bad at, and whether

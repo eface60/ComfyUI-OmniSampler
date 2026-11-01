@@ -323,7 +323,13 @@ def control(root):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default=r"G:\AI\comfy\output\aflops")
+    ap.add_argument(
+        "--root",
+        default=os.environ.get(
+            "AFLOPS_OUT",
+            os.path.join(os.environ.get("COMFY_DIR", r"G:\AI\comfy"), "output", "aflops"),
+        ),
+    )
     ap.add_argument("--json-out", default=os.path.join(os.path.dirname(__file__), "scan_corpus_out.json"))
     ap.add_argument("--txt-out", default=os.path.join(os.path.dirname(__file__), "scan_corpus_out.txt"))
     ap.add_argument("--control", action="store_true")

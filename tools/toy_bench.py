@@ -8,10 +8,11 @@ Test problem: analytic Gaussian mixture -> the exact PF-ODE is integrated
            reference (only meaningful for stochastic samplers, which may
            legitimately explore other modes)
 
-Usage (from the ComfyUI directory):
+Usage (from the repository root, with ComfyUI's venv python; COMFY_DIR
+overrides the default path):
 
-    $env:PYTHONPATH="G:\\AI\\comfy;...\\omni_sampler"
-    venv\\Scripts\\python.exe "...\\tools\\toy_bench.py"
+    $env:COMFY_DIR = "C:\\path\\to\\ComfyUI"
+    & "$env:COMFY_DIR\\venv\\Scripts\\python.exe" tools\\toy_bench.py
 """
 
 from __future__ import annotations

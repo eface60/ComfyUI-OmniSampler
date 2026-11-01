@@ -11,12 +11,17 @@ reachable when the feature is off).
 
 from __future__ import annotations
 
+import os
 import sys
 
 import torch
 
-sys.path.insert(0, r"G:\AI\comfy")
-sys.path.insert(0, r"G:\AI\agent working folders\generic")
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
+WORK = os.environ.get(
+    "OMNI_WORK", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
+sys.path.insert(0, COMFY)
+sys.path.insert(0, WORK)
 
 from omni_sampler.omni_core import sample_omni  # noqa: E402
 from omni_sampler.tools.toy import MixturePrior, ToyModel, karras_sigmas, make_init  # noqa: E402

@@ -21,21 +21,24 @@ What this checks
   KSampler path emits `eta_window` (parsed to a tuple) into `sample_omni`.
   A non-default build is compared with the default build as a negative control.
 
-Run it from the ComfyUI venv:
+Run it with ComfyUI's venv python (COMFY_DIR overrides the default path):
 
-    $env:PYTHONPATH="G:\\AI\\comfy;G:\\AI\\agent working folders\\generic"
-    & "G:\\AI\\comfy\\venv\\Scripts\\python.exe" "G:\\AI\\agent working folders\\generic\\omni_sampler\\tools\\test_node_parity.py"
+    $env:COMFY_DIR = "C:\\path\\to\\ComfyUI"
+    & "$env:COMFY_DIR\\venv\\Scripts\\python.exe" tools\\test_node_parity.py
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from unittest import mock
 
 import torch
 
-COMFY = r"G:\AI\comfy"
-WORK = r"G:\AI\agent working folders\generic"
+COMFY = os.environ.get("COMFY_DIR", r"G:\AI\comfy")
+WORK = os.environ.get(
+    "OMNI_WORK", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 sys.path.insert(0, COMFY)
 sys.path.insert(0, WORK)
 
