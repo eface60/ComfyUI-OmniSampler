@@ -32,11 +32,12 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 # the checks that need no model weights
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\verify_math.py
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\cfgpp_check.py
+& "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_cross_features.py
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_node.py
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_node_parity.py
 ```
 
-All four must pass, and `test_node_parity.py` must pass **whenever you touch a
+All five must pass, and `test_node_parity.py` must pass **whenever you touch a
 widget**, because it is the only thing that catches a knob that exists on one
 node and not the other, or a tooltip that stopped describing its combo.
 

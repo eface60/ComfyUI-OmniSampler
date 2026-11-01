@@ -47,6 +47,14 @@ the same image with different detail. The guided trajectory bifurcates into
 different basins depending on the discretisation, so "distance to a high-NFE
 reference" measures *which mode you landed in*, not integration accuracy.
 
+**Later note (2026-11-01).** The exact-determinism statement did not hold for
+the local-error runs: identical coarse runs from the same latent differ by 7-9%
+on MOSS and 28% on Krea2 at 10 steps (the metric section below). The statement
+was measured on the reference runs, which start from a seeded noise sample; the
+local metric starts from a zero latent, a degenerate point where the same tiny
+numerical difference can be amplified. Either way, a metric that needs
+repeatability must check it per run, which `tools/local_metric.py` now does.
+
 **Consequence.** All reference-based rankings on these models (SSIM/rel-L2 to an
 80/60/40-step run) are not accuracy measurements. That includes the flow-model
 evidence behind v1.1's `corrector="auto"` default and the Krea2 side of v1.2.
@@ -75,27 +83,65 @@ churn geometry) and the ppm `euler_gamma` equivalence (2.4e-7).
 ## Status of the local-error metric ([`tools/local_metric.py`](../tools/local_metric.py))
 
 Implemented and running: it re-runs the sampler on a refined sub-schedule from
-the captured `x_i` and compares the denoised predictions at the shared node, so
-the basin is fixed and the number measures integration error only.
+the captured `x_i` and compares the denoised predictions at the shared endpoint
+node, so the basin is fixed and the number measures integration error only.
 
-First measurement, MOSS 10 steps, 5 intervals (0..4), 16 substeps:
+**Correction (2026-11-01): endpoint index, substep count, and reproducibility.**
+
+1. **Endpoint.** The first version read `fine_rec[substeps - 1]`, one refined
+   node before the shared endpoint (`substeps`), and compared it with the coarse
+   x0 at `s_{i+1}`. On the analytic toy this changes interval 0 from 4.61e-1 to
+   1.40e-1 (flow, 10 steps, 16 substeps). The script now reads the endpoint and
+   asserts the node count.
+2. **Substeps.** A fixed 16 substeps cannot resolve a flow first interval with
+   `h` around 10; the count now scales as
+   `max(--substeps, ceil(h / --max-lambda-step))` (default 0.2).
+3. **Reproducibility.** The script did not check that its own runs repeat. On
+   MOSS two identical coarse runs from the same latent moved the final x0 by
+   **7.3%** (zero start) and **50-67%** (unit-variance start) at 512²; the 768²
+   51-substep reference repeated at **11.7%**. Krea2 fails the same gate:
+   identical coarse runs differ by **2.83e-1** and the refined reference by
+   **1.18e-1** (10 steps, 512², cfg 1.0). Every arm difference in the tables
+   below is below that drift, so the rows are inadmissible. The script now
+   repeats the first arm and its refined reference and refuses to write a JSON
+   unless both are bit-identical; both models currently fail it.
+
+The superseded table (kept for the record; do not quote it):
 
 | corrector | mean | interval 0 | 1 | 2 | 3 | 4 |
 |---|---|---|---|---|---|---|
 | `first` | 1.388e-1 | 2.26e-1 | 1.50e-1 | 1.10e-1 | 1.10e-1 | 9.7e-2 |
 | `none` | 1.372e-1 | 2.24e-1 | 1.29e-1 | 1.22e-1 | 1.22e-1 | 9.8e-2 |
 
-Two honest caveats:
+The endpoint/substep-fixed MOSS table is **also inadmissible**, for reason 3; it
+is recorded in the changelog as the run that exposed the failure, not as a
+result:
 
-* **Interval 0 is not resolved.** For flow schedules the first lambda gap is
-  ~12.7, so a 16-substep first-order reference has large error there — the
-  0.22 figure is mostly reference error, not sampler error. The metric needs
-  `substeps` proportional to the interval's `h` (e.g. `ceil(h/0.2)`) before the
-  first interval can be judged. The corrector only acts on interval 0, so this
-  is exactly the interval that matters for the open question.
-* On intervals 1-4 the corrector is neutral to within 1% (0.150/0.110/0.110/0.097
-  vs 0.129/0.122/0.122/0.098) — no evidence either way for flow models.
+| interval | h | n | `first` | `none` | first − none | ref_unc |
+|---|---|---|---|---|---|---|
+| 0 | 10.009 | 51 | 1.391e-1 | 1.533e-1 | −1.42e-2 | 1.2e-1 |
+| 1 | 0.811 | 16 | 1.387e-1 | 1.278e-1 | +1.10e-2 | — |
+| 2 | 0.539 | 16 | 1.122e-1 | 1.081e-1 | +4.1e-3 | — |
+| 3 | 0.442 | 16 | 1.067e-1 | 1.008e-1 | +5.9e-3 | — |
+| 4 | 0.405 | 16 | 9.953e-2 | 1.055e-1 | −6.0e-3 | — |
+| 5 | 0.405 | 16 | 8.249e-2 | 9.293e-2 | −1.04e-2 | — |
+| mean 1-5 | | | 1.079e-1 | 1.070e-1 | +9.0e-4 | |
+| mean 0-5 | | | 1.131e-1 | 1.147e-1 | −1.6e-3 | |
+
+The same failure applies to the CFG++ corrector: `cfg_pp` vs `cfg_pp_corr` on
+MOSS gave six-interval means 2.864e-1 vs 2.868e-1, interval 0 2.384e-1 vs
+2.239e-1, and intervals 2-3 worse by ~1.7e-2 — all below the repeat drift, so
+the corrector-under-CFG++ question is **NOT RESOLVED**, not a win or a loss.
+
+One further caveat: the coarse arm starts from a zero latent (the original
+script's choice), which is a degenerate, out-of-distribution point; that may be
+part of why identical runs diverge. A future version should start from a seeded
+noise sample, and the repeat gate should decide whether that helps.
 
 So the corrector question is still open; `corrector="first"` remains the default
-because that is the v1.0 behaviour, not because it is proven better.
+because that is the v1.0 behaviour, not because it is proven better. Both modern
+flow models fail the repeat gate, so the next attempt needs either a
+deterministic stack (a float checkpoint, or a backend whose identical runs
+reproduce) or a different accuracy instrument; the gate decides that before any
+number is written.
 

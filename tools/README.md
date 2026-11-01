@@ -27,7 +27,8 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 | script | what it proves |
 |---|---|
 | [`verify_math.py`](verify_math.py) | every formula in `omni_core`: exact-step trajectory, the ODE identity, SDE marginals, quadrature kernel, convergence order, CFG++ algebra, model-family detection, equality with `dpmpp_2m`'s first step |
-| [`cfgpp_check.py`](cfgpp_check.py) | CFG++ invariants, the match with ComfyUI's `euler_cfg_pp`, and the effective-guidance table printed in [docs/TECHNICAL.md](../docs/TECHNICAL.md#cfg-and-what-cfg-means) |
+| [`cfgpp_check.py`](cfgpp_check.py) | CFG++ invariants (including the no-op with `px_order` and `corrector_cfgpp` on), the match with ComfyUI's `euler_cfg_pp`, and the effective-guidance table in [docs/TECHNICAL.md](../docs/TECHNICAL.md#cfg-and-what-cfg-means) |
+| [`test_cross_features.py`](test_cross_features.py) | the pairs no single-feature test covers: `order` clamped on `exp`, `ab` + churn falls back to `exp`, and `final_extrapolate` receives the churned evaluation sigmas |
 | [`test_node.py`](test_node.py) | the names appear in the stock dropdowns, both nodes resolve them, and `KSAMPLER.sample()` lands within 4-6% of the analytic reference on both families |
 | [`test_node_parity.py`](test_node_parity.py) | both nodes expose the same knobs from one definition, every widget has a tooltip naming every combo choice, defaults agree with `omni_core.DEFAULTS`, the widget order stays a prefix (so saved workflows keep their values), and every knob reaches `sample_omni` |
 | [`verify_spatial.py`](verify_spatial.py) | `px_order` / `cfg_map` OFF is bit-identical to the previous release, ON reaches its site, and the map/mask algebra is correct |
@@ -48,7 +49,7 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 | [`modern_bench.py`](modern_bench.py) | Krea2 / MOSS / Anima in one process (int8 checkpoints are only reproducible within a session) |
 | [`flow_bench.py`](flow_bench.py) | PixelDiT, a real flow-matching model |
 | [`latent_bench.py`](latent_bench.py) | the same comparison in latent space, with decoded previews optional |
-| [`local_metric.py`](local_metric.py) | per-interval local ODE error - the only mode-free real-model metric here |
+| [`local_metric.py`](local_metric.py) | per-interval local ODE error - the only mode-free real-model metric here; the refined reference uses the endpoint node and `max(--substeps, ceil(h/0.2))` substeps, named deterministic variants (`first,none,cfg_pp,...`), and a repeat gate that refuses to write numbers unless the first arm and its reference are bit-identical |
 | [`spatial_ab.py`](spatial_ab.py) | `px_order` / `cfg_map` A/B with a repeated-base control |
 | [`test_node_ab.py`](test_node_ab.py) | the full A/B node on a real flow model: four presets, wall time, latent distance |
 | [`nfe_audit.py`](nfe_audit.py) | real model evaluations and wall time per variant |

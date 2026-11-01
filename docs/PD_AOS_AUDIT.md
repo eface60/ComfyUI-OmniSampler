@@ -208,7 +208,7 @@ and are **OFF by default**:
 
 | option | default | what it does |
 |---|---|---|
-| `px_order` | False | per-pixel Lagrange-remainder gate on the order-2 x0 extrapolation |
+| `px_order` | False | per-pixel Lagrange-remainder gate on the order-2 x0 extrapolation (and, under CFG++, on the unconditional extrapolation too, so CFG++ keeps its `cond == uncond` no-op) |
 | `px_order_tol` | 2.0 | allowance in units of the doubled Lagrange bound (see `_px_order_mask`) before a pixel falls back to order 1 |
 | `cfg_map` | False | late per-region guidance map, measured from the run's own cond/uncond gap |
 | `cfg_map_floor` | 0.85 | guidance fraction kept in the lowest-gap region |

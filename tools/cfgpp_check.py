@@ -3,7 +3,9 @@
 1. omni's CFG++ step must equal comfy's euler_cfg_pp (same formula).
 2. when cond == uncond, CFG++ must be a no-op (this caught a real bug: the
    multistep x0 average was applied to the conditional prediction only, which
-   injected ~2x extra guidance).
+   injected ~2x extra guidance).  The invariant is re-checked with px_order on
+   (the gate must hit both histories) and with corrector_cfgpp on (the
+   corrector must average both histories).
 3. cfg_pp_strength=0 must equal plain sampling; 1 = faithful CFG++.
 4. effective cfg: which standard-CFG scale does a given CFG++ cfg look like?
 """
@@ -109,6 +111,33 @@ def main():
     c_on = sample(m, sig, x, cfg_pp=True, corrector="first")
     check("CFG++ ignores the corrector (documented policy)", rel(c_on, c_off) < 1e-12,
           f"rel={rel(c_on, c_off):.1e}")
+
+    print("\n=== 2b. no-op invariant with px_order / corrector_cfgpp ===")
+    # The invariant is CFG++ == PLAIN sampling with the same other knobs.  It
+    # caught the v1.0 x0-only average; it must also hold when the per-pixel gate
+    # masks both histories and when the corrector averages both of them.
+    m = SameCfg()
+    for px, corr in ((False, "first"), (True, "none"), (True, "first")):
+        kw = dict(px_order=px, px_order_tol=0.05, corrector=corr)
+        if corr == "first":
+            kw["corrector_cfgpp"] = True
+        a = sample(m, sig, x, cfg_pp=False, **kw)
+        b = sample(m, sig, x, cfg_pp=True, cfg_pp_strength=1.0, **kw)
+        d = rel(b, a)
+        check(f"px_order={px} corrector={corr}", d < 1e-5, f"rel={d:.1e}")
+
+    m = CfgToy(cfg=2.0)
+    a = sample(m, sig, x, cfg_pp=True, cfg_pp_strength=1.0, corrector="none")
+    b = sample(m, sig, x, cfg_pp=True, cfg_pp_strength=1.0, corrector="first",
+               corrector_cfgpp=True)
+    st = dict(omni_core.LAST_STATS)
+    check("corrector_cfgpp reaches the step (cond != uncond)", rel(b, a) > 1e-5,
+          f"rel={rel(b, a):.1e}")
+    check("corrector_cfgpp runs exactly the scheduled step", st["corrector_steps"] == 1,
+          f"corrector_steps={st['corrector_steps']}")
+    b2 = sample(m, sig, x, cfg_pp=True, cfg_pp_strength=1.0, corrector="first",
+                corrector_cfgpp=True)
+    check("corrector_cfgpp reproduces bit-exactly", torch.equal(b, b2))
 
     print("\n=== 3. cfg_pp_strength (cond != uncond) ===")
     m = SameCfg()

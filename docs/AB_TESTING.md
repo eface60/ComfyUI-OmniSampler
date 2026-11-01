@@ -28,6 +28,7 @@ only the settings it mentions, so the rest keeps your knob values.
 | `J: no gate` | `min_step_ratio=0` | disables the step-ratio guard |
 | `K: per-pixel order` | `px_order=True` | experimental PD-AOS port; a tight tolerance cost 0.014 SSIM on Krea2 @8, a loose one was neutral (see [the PD-AOS audit](PD_AOS_AUDIT.md)) |
 | `L: region CFG map` | `cfg_map=True` | experimental PD-AOS port; needs cfg > 1, moves MOSS @8 by 0.0142 image RMS (SSIM 0.9824) |
+| `M: author pref (cfgpp+churn+eta+px)` | `cfg_pp=True, s_churn=100, churn_mode=gamma, eta=1.0, px_order=True` | the registered `omni_hybrid_cfgpp_author_pref` name as one row, so the combination can be compared with its parts at equal NFE; chosen by eye, no benchmark covers it |
 
 ## Suggested way to compare
 
@@ -50,4 +51,5 @@ visual, which is exactly what this node is for.
 guidance patches (CADS/TCFG/WaveletCFG/SMC/DCW), AFloPS' per-sample `c`, and the
 flow-space AB2 integrator all lost on the analytic harness or in latent space.
 They are not in the node. `skip_every` and `corrector` are the two that are
-still genuinely open.
+still genuinely open; `corrector_cfgpp` extends the corrector question to the
+CFG++ path (it is opt-in and unmeasured — see [TECHNICAL.md](TECHNICAL.md#cfg-and-what-cfg-means)).

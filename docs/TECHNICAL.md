@@ -53,15 +53,16 @@ safe-fallback values, because their measurement is a caution, not a win; see the
 
 | input | default | meaning |
 |---|---|---|
-| `order` | 2 | history order. 2 for `exp` (3+ is limited by start-up), 1–4 for `ab` |
-| `integrator` | `exp` | `exp` = exponential in logSNR (all features); `ab` = Adams-Bashforth in sigma, deterministic only |
+| `order` | 2 | history order. `exp`: 1–2; 3–4 are clamped to 2 (the third-order fit was measured and removed; the exp path keeps one previous x0). `ab`: 1–4 |
+| `integrator` | `exp` | `exp` = exponential in logSNR (all features); `ab` = Adams-Bashforth in sigma, deterministic only (eta, CFG++ or churn force `exp`) |
 | `eta` | 0.0 | SDE strength (0 = ODE). `omni_hybrid_sde` uses 0.5 |
 | `s_noise` | 1.0 | noise multiplier (SDE noise and churn noise) |
 | `eta_window` | `0.10,0.90` | trajectory fractions where SDE noise is injected |
-| `s_churn` | 0.0 | churn: re-noise the state before the model call |
+| `s_churn` | 0.0 | churn: re-noise the state before the model call (forces `exp` with `ab`) |
 | `churn_mode` | `karras` | `karras` = relative law (euler/heun); `gamma` = comfyui-ppm's euler_gamma law |
 | `noise_mode` | `brownian` | Brownian-tree correlated noise or white noise (only when `eta > 0`) |
-| `corrector` | `first` | trapezoidal corrector on none/first/last/first_last steps (+1 NFE each); `auto` = first for eps, none for flow (heuristic) |
+| `corrector` | `first` | trapezoidal corrector on none/first/last/first_last steps (+1 NFE each); `auto` = first for eps, none for flow (heuristic); skipped by `ab` and (by default) with CFG++ |
+| `corrector_cfgpp` | false | run the corrector under CFG++ too, averaging `u` as well as `x0` so `cond == uncond` stays a no-op; +1 NFE (2x batch at cfg = 1) |
 | `lower_order_to_end` | 1 | first order for the last N real steps |
 | `cfg_pp` | false | CFG++ (costs +1 model call per step when cfg == 1) |
 | `cfg_pp_strength` | 0.5 | 0 = plain sampling, 1 = reference CFG++; see below |
@@ -70,7 +71,7 @@ safe-fallback values, because their measurement is a caution, not a win; see the
 | `skip_every` | 1 | 1 = evaluate every step; N = evaluate every Nth step (experimental) |
 | `skip_order` | 2 | epsilon-extrapolation order on skipped steps (1–3) |
 | `final_extrapolate` | 0.0 | blend of an `x0 -> sigma=0` extrapolation (available, no measured gain) |
-| `px_order` | false | per-pixel order-2 gate; see the spatial section |
+| `px_order` | false | per-pixel order-2 gate (under CFG++ the same gate is applied to the `u` extrapolation); see the spatial section |
 | `px_order_tol` | 2.0 | allowed Lagrange-remainder error (multiple of local x0 RMS) |
 | `cfg_map` | false | late 8×8 per-region CFG map; needs cfg > 1 and no CFG++ |
 | `cfg_map_floor` | 0.85 | fraction of the late guidance delta kept in the lowest-gap region |
@@ -81,8 +82,8 @@ The same A/B preset rows are available on both nodes through `variant`
 names, so the remaining knobs keep their values; choose `custom (use knobs)` to
 use every knob as set.
 
-Cost: **1 NFE per step + 1** (the step-0 corrector). `eta=0` and `cfg_pp=false`
-add nothing else.
+Cost: **1 NFE per step + 1** (the step-0 corrector; `corrector_cfgpp` adds one
+more under CFG++). `eta=0` and `cfg_pp=false` add nothing else.
 
 ## CFG++ and what "cfg" means
 
@@ -118,18 +119,31 @@ So with the reference behaviour, `cfg=1` really does look like `cfg≈2.5`, and
 numbers roughly meaningful; set it to `1.0` if you want to reproduce ComfyUI's
 `euler_cfg_pp` exactly, or to `0.0` to use CFG++ plumbing as a no-op.
 
-**2. A real bug, fixed.** The multistep x0 average (`x0_eff`) was applied to the
-conditional prediction only. In CFG++ mode that difference is injected straight
-into the guidance direction, which made the *default* path (order 2) behave like
-~4-5x the cfg value even after the term above — a 16% deviation in the case
-where CFG++ must be a no-op (`cond == uncond`). Now both x0 and `u` get the same
-average, the case `cond == uncond` reduces to plain sampling to 3e-7, and the
-corrector is skipped in CFG++ mode (it cannot re-evaluate the uncond prediction,
-so it would shift the guidance).
+**2. A real bug, fixed — and one rule made optional.** The multistep x0 average
+(`x0_eff`) was applied to the conditional prediction only. In CFG++ mode that
+difference is injected straight into the guidance direction, which made the
+*default* path (order 2) behave like ~4-5x the cfg value even after the term
+above — a 16% deviation in the case where CFG++ must be a no-op (`cond ==
+uncond`). Now both x0 and `u` get the same average, and the case `cond == uncond`
+reduces to plain sampling to 3e-7.
+
+The corrector is skipped in CFG++ mode by default: correcting x0 without
+correcting `u` would shift the guidance. `corrector_cfgpp` opts into it instead:
+the corrector's extra model call already re-evaluates the unconditional
+prediction (the post-CFG hook captures it), so both histories are averaged with
+the same trapezoid and `cond == uncond` stays a no-op (2.2e-7 eps, 2.5e-7 flow).
+It costs one extra call; at cfg = 1 that call is a 2x batch.
+
+The same symmetry rule applies to `px_order`: its per-pixel mask must gate the
+`u` extrapolation as well as the x0 one, which it now does. A mask on x0 alone
+re-created the v1.0 defect at per-pixel granularity — measured on the analytic
+toy at `px_order_tol=0.05`, 7.6e-2 relative deviation before the fix and 2.3e-7
+after.
 
 Verification: `tools/cfgpp_check.py` checks the match with `euler_cfg_pp`
-(1e-7 at cfg 1/2/4), the no-op invariant, `strength=0 == plain`, `strength=1`
-reproduces the reference, and prints the effective-cfg table above.
+(1e-7 at cfg 1/2/4), the no-op invariant with `px_order` and `corrector_cfgpp`
+on, `strength=0 == plain`, `strength=1` reproduces the reference, and prints the
+effective-cfg table above.
 
 ## Measured results
 
@@ -294,7 +308,7 @@ the previous release's module side by side).
 
 | option | what it does | measured |
 |---|---|---|
-| `px_order` / `px_order_tol` | gives the order-2 x0 extrapolation only to pixels whose Lagrange remainder is under the tolerance; the rest run as order 1. No extra NFE. | On Krea2 @ 8 steps (512², SSIM to a 40-step reference, one process): plain 0.8620; tol 0.05 **0.8477**, 0.2 0.8550, 0.5 0.8587, 1.0 0.8592, 2.0 0.8617, 5.0 0.8608. Default 2.0 is the neutral value; a tight gate loses accuracy. |
+| `px_order` / `px_order_tol` | gives the order-2 x0 extrapolation only to pixels whose Lagrange remainder is under the tolerance; the rest run as order 1. No extra NFE. Under CFG++ the same mask also gates the unconditional extrapolation, so the `cond == uncond` no-op survives. | On Krea2 @ 8 steps (512², SSIM to a 40-step reference, one process): plain 0.8620; tol 0.05 **0.8477**, 0.2 0.8550, 0.5 0.8587, 1.0 0.8592, 2.0 0.8617, 5.0 0.8608. Default 2.0 is the neutral value; a tight gate loses accuracy. |
 | `cfg_map` / `cfg_map_floor` / `cfg_map_start` | measures the cond/uncond gap at `cfg_map_start` of the trajectory, pools it to 8×8, and scales the late guidance delta so the lowest-gap region keeps `cfg_map_floor` of it. Needs cfg > 1; disabled with CFG++. | On MOSS @ 8 steps (512², cfg 3.5): base vs a repeated base is bit-identical; the map builds at step 3, applies on 6 steps, and moves the decoded image 0.01424 RMS (SSIM 0.9824). |
 | local fields | **not ported.** | PD-AOS's own typical amplitude was 0.25% of the drift term (p90 0.45%), it is probe-dependent, and its own A/B could not separate it from run-to-run drift. |
 
@@ -317,8 +331,19 @@ that.
   that were out of scope for this test run).
 * For exotic `model_sampling` classes (`COSMOS_RFLOW`, `IMG_TO_IMG*`) Omni falls
   back to `alpha=1` like every other built-in sampler.
-* `integrator="ab"` is deterministic-only; with `eta>0` or `cfg_pp` the `exp`
-  path is used.
+* `integrator="ab"` is deterministic-only; with `eta>0`, `cfg_pp` or
+  `s_churn>0` the `exp` path is used. `order` 3–4 on the `exp` path are clamped
+  to 2 (the third-order fit was measured and removed).
+* `corrector_cfgpp` is wired and its no-op invariant is verified, but no
+  real-model accuracy comparison has been run: the corrector itself is still an
+  open question (see [CORRECTIONS.md](CORRECTIONS.md)).
+* The only mode-free real-model instrument is `tools/local_metric.py`; its
+  first-interval reference is only resolved when the substep count scales with
+  the interval's `lambda` gap (the default does), and it refuses to write
+  numbers unless the first arm and its refined reference repeat bit-exactly.
+  Both modern flow models failed that gate (MOSS 7-67% drift; Krea2 28% coarse,
+  12% reference), so their local-error rows are not quotable; see
+  [CORRECTIONS.md](CORRECTIONS.md).
 * The real-model evidence is reference-based and the references are not
   converged; see [CORRECTIONS.md](CORRECTIONS.md).
 
@@ -332,6 +357,7 @@ explains the environment variables — then run from the repository root:
 $env:COMFY_DIR = "C:\path\to\ComfyUI"
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\verify_math.py
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\cfgpp_check.py
+& "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_cross_features.py
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_node.py
 ```
 
@@ -351,6 +377,11 @@ assertion:
 * flow/EPS detection matches `comfy.model_base.model_sampling()`,
 * one eps step equals `dpmpp_2m`'s first step (1.6e-7).
 
+[`tools/test_cross_features.py`](../tools/test_cross_features.py) checks the
+pairs no single-feature test covers: `order` is clamped to 2 on `exp` (and `ab`
+really uses 1-4), `ab` + churn is bit-identical to `exp` + churn, and
+`final_extrapolate` receives the churned evaluation sigmas.
+
 [`tools/test_node.py`](../tools/test_node.py) checks that the names appear in the
 stock KSampler, KSamplerAdvanced and KSamplerSelect dropdowns, that
 `ksampler()` / `sampler_object()` resolve them, and that `KSAMPLER.sample()`
@@ -367,7 +398,7 @@ benchmarks, the A/B renderers, and the regression tests for the bugs above.
 | [ANALYSIS.md](ANALYSIS.md) | what each of the 45 built-in samplers does, and what was reused or rejected |
 | [AB_TESTING.md](AB_TESTING.md) | the A/B preset rows and how to compare two runs at equal NFE |
 | [EXPERIMENTS.md](EXPERIMENTS.md) | leads from other custom-node packs that were tested and did not ship |
-| [CORRECTIONS.md](CORRECTIONS.md) | the two measurement bugs, and what a valid metric has to look like |
+| [CORRECTIONS.md](CORRECTIONS.md) | the two measurement bugs, the local-metric instrument correction, and what a valid metric has to look like |
 | [PD_AOS_AUDIT.md](PD_AOS_AUDIT.md) | audit of PD-AOS's spatial mechanisms: what they do and what was ported |
 | [../CHANGELOG.md](../CHANGELOG.md) | what changed in each version and why |
 | [../tools/README.md](../tools/README.md) | every verification and benchmark script, and what it proves |

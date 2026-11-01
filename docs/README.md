@@ -27,3 +27,8 @@ that can be re-run.
 * The **Krea2 and Anima** numbers from the v1.1 round were additionally computed
   on malformed decodes and are void (
   [CORRECTIONS.md](CORRECTIONS.md#1-decoded-images-had-the-wrong-shape-768x61-768x1)).
+* The **local-error** metric ([`tools/local_metric.py`](../tools/local_metric.py))
+  is the only mode-free real-model instrument. It now refuses to write numbers
+  unless its first arm and refined reference repeat bit-exactly; MOSS and Krea2
+  both failed that gate at 10 steps, so their local-error rows are not quotable
+  ([CORRECTIONS.md](CORRECTIONS.md)).

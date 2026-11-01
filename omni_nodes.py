@@ -78,7 +78,9 @@ _KNOB_SPECS = {
                 "G: order 1; H: exact kernel = x0_average exact; "
                 "I: SDE eta 0.3; J: no gate = min_step_ratio 0; "
                 "K: per-pixel order = px_order on; "
-                "L: region CFG map = cfg_map on. "
+                "L: region CFG map = cfg_map on; "
+                "M: author pref (cfgpp+churn+eta+px) = cfg_pp on, gamma churn 100, eta 1.0, "
+                "px_order on (the registered author-preference name). "
                 "A preset overrides only the knobs it names; custom (use knobs) "
                 "uses every knob as set."
             ),
@@ -93,9 +95,10 @@ _KNOB_SPECS = {
             "step": 1,
             "tooltip": (
                 "History order of the multistep rule: how many previous model "
-                "evaluations it uses. exp: 2 is the measured best; 3-4 are "
-                "limited by the first-order start-up step and add risk without "
-                "measured gain. ab: 1-4 are available. 1 = first order, no history."
+                "evaluations it uses. exp: 1 = first order, 2 = the measured "
+                "best; 3-4 are clamped to 2, because the third-order fit was "
+                "measured and removed and the exp path keeps one previous x0. "
+                "ab: 1-4 are available. 1 = first order, no history."
             ),
         },
     ),
@@ -109,8 +112,8 @@ _KNOB_SPECS = {
                 "cfg_pp, corrector, x0_average and px_order. ab = Adams-Bashforth "
                 "in sigma time (ipndm/deis style); deterministic only, with no "
                 "exponential step and no OU noise, so eta, cfg_pp, corrector, "
-                "x0_average and px_order do not apply. With eta > 0 or cfg_pp on, "
-                "ab is ignored and the exp path runs."
+                "x0_average and px_order do not apply. With eta > 0, cfg_pp on, "
+                "or churn > 0, ab is ignored and the exp path runs."
             ),
         },
     ),
@@ -155,8 +158,22 @@ _KNOB_SPECS = {
                 "step 0 only (measured best for epsilon models); last = the last "
                 "real step; first_last = both; none = off; auto = first for "
                 "epsilon models and none for flow models (heuristic). Skipped by "
-                "the ab integrator and with CFG++ (it cannot re-evaluate the "
-                "unconditional prediction)."
+                "the ab integrator and (unless corrector_cfgpp is on) with CFG++."
+            ),
+        },
+    ),
+    "corrector_cfgpp": (
+        "BOOLEAN",
+        {
+            "default": DEFAULTS["corrector_cfgpp"],
+            "tooltip": (
+                "Only used when cfg_pp is on. Also run the trapezoidal corrector "
+                "under CFG++: the extra model call re-evaluates both the guided "
+                "x0 and the unconditional prediction, and both are averaged, so "
+                "CFG++ stays a no-op when cond == uncond. OFF (default) is the "
+                "v1.0 rule: the corrector is skipped under CFG++, because "
+                "correcting x0 alone would shift the guidance. Costs +1 model "
+                "call; at cfg = 1 that call is a 2x batch."
             ),
         },
     ),
@@ -260,7 +277,8 @@ _KNOB_SPECS = {
             "tooltip": (
                 "Re-noise the state before the model call (churn). 0 = off. A "
                 "stochasticity dial, not an accuracy knob; it costs no extra model "
-                "call. The size follows churn_mode."
+                "call. The size follows churn_mode. With integrator ab, churn "
+                "forces the exp path (ab is deterministic)."
             ),
         },
     ),
@@ -347,8 +365,10 @@ _KNOB_SPECS = {
                 "pixels whose Lagrange remainder is under px_order_tol keep order "
                 "2; the rest run as order 1. No extra model call. OFF is "
                 "bit-identical to the plain sampler. Needs order >= 2 and the exp "
-                "integrator (ignored by ab). Experimental: neutral at the default "
-                "tolerance, worse when tight."
+                "integrator (ignored by ab). Under CFG++ the same gate is applied "
+                "to the unconditional extrapolation, so the cond == uncond no-op "
+                "survives. Experimental: neutral at the default tolerance, worse "
+                "when tight."
             ),
         },
     ),
@@ -487,7 +507,9 @@ _V151_SELECT_ORDER = [
     "s_churn", "noise_mode", "final_extrapolate", "px_order", "px_order_tol",
     "cfg_map", "cfg_map_floor", "cfg_map_start",
 ]
-_SELECT_ORDER = _V151_SELECT_ORDER + ["churn_mode", "skip_every", "skip_order", "variant"]
+_SELECT_ORDER = _V151_SELECT_ORDER + [
+    "churn_mode", "skip_every", "skip_order", "variant", "corrector_cfgpp",
+]
 
 _V151_KSAMPLER_ORDER = [
     "variant", "order", "integrator", "corrector", "x0_average", "min_step_ratio",
@@ -495,7 +517,7 @@ _V151_KSAMPLER_ORDER = [
     "churn_mode", "noise_mode", "skip_every", "skip_order", "final_extrapolate",
     "px_order", "px_order_tol", "cfg_map", "cfg_map_floor", "cfg_map_start",
 ]
-_KSAMPLER_ORDER = _V151_KSAMPLER_ORDER + ["eta_window"]
+_KSAMPLER_ORDER = _V151_KSAMPLER_ORDER + ["eta_window", "corrector_cfgpp"]
 
 
 class OmniSamplerSelect:
@@ -628,18 +650,42 @@ class OmniKSampler:
             if not (sk > 1 and i > 0 and i % sk != 0
                     and i >= int(DEFAULTS["skip_protect_first"]) and i <= n - 1 - int(DEFAULTS["skip_protect_last"]))
         )
-        extra = 1 if (corr in ("first", "first_last") and not opts.get("cfg_pp", False)) else 0
+        # The denominator is an estimate; the numerator is LAST_STATS["calls"],
+        # measured by the sampler.  Count what the resolved corrector actually
+        # adds: "last" is one call, "first_last" is two, and CFG++ suppresses
+        # them unless corrector_cfgpp is on.  cfg_pp_strength == 0 is plain
+        # sampling, so it must not suppress the corrector.
+        corr_steps = 0
+        if corr in ("first", "first_last"):
+            corr_steps += 1
+        if corr in ("last", "first_last") and n >= 3:
+            corr_steps += 1
+        cfgpp_on = (bool(opts.get("cfg_pp", False))
+                    and float(opts.get("cfg_pp_strength", DEFAULTS["cfg_pp_strength"])) > 0.0)
+        if cfgpp_on and not opts.get("corrector_cfgpp", False):
+            corr_steps = 0
+        extra = corr_steps
         delta = {k: v for k, v in opts.items() if DEFAULTS.get(k) != v}
         spatial = ""
         if opts.get("px_order") or opts.get("cfg_map"):
             spatial = " | " + " ".join(
                 f"{k}={omni_core.LAST_STATS[k]}" for k in sorted(omni_core.LAST_STATS)
                 if k.startswith(("px_order", "cfg_map")))
+        effective = ""
+        if (omni_core.LAST_STATS.get("order_requested") is not None
+                and omni_core.LAST_STATS.get("order_effective")
+                != omni_core.LAST_STATS.get("order_requested")):
+            effective = (f" | order {omni_core.LAST_STATS['order_requested']}"
+                         f"->{omni_core.LAST_STATS['order_effective']}")
+        if (str(opts.get("integrator", "exp")).lower() == "ab"
+                and omni_core.LAST_STATS.get("integrator") == "exp"):
+            effective += " | ab->exp"
         summary = (
             f"variant={variant} flow={flow} steps={n} cfg={cfg} scheduler={scheduler} "
             f"evals={omni_core.LAST_STATS.get('calls', evals + extra)}"
             f"/{evals + extra} | " + ", ".join(f"{k}={v}" for k, v in sorted(delta.items()))
             + spatial
+            + effective
             + (" | cfg++ batch x2 (cfg=1 uncond pass forced)" if opts.get("cfg_pp") and cfg <= 1.0
                else " | cfg++ free (uncond already evaluated)" if opts.get("cfg_pp") else "")
         )

@@ -5,6 +5,77 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 
 ## Unreleased
 
+### Fixed
+
+* **`px_order` × CFG++ broke the CFG++ no-op invariant.** The per-pixel gate
+  masked the x0 extrapolation but not the unconditional one, so every pixel the
+  gate refused leaked an unmasked `kappa*(du)` term into the guidance direction
+  — the v1.0 defect at per-pixel granularity. The same mask is now applied to
+  both histories. On the analytic toy (`cond == uncond`, 12-step Karras, eps):
+  7.63e-2 relative deviation at `px_order_tol=0.05` and 6.06e-3 at the shipped
+  2.0 before the fix; 2.3e-7 and 1.9e-7 after, against 2.6e-7 with `px_order`
+  off. `tools/cfgpp_check.py` now re-checks the invariant with `px_order` on.
+  `omni_hybrid_cfgpp_author_pref` enables both features.
+* **`order` 3–4 was inert on the `exp` path.** `hist_x0` keeps one previous x0,
+  so `order=3/4` was bit-identical to `order=2` while the tooltip described the
+  higher modes. `order` is now clamped to 2 on `exp`; `LAST_STATS` records
+  `order_requested`/`order_effective` and the A/B node prints the clamp. `ab`
+  still uses 1–4.
+* **`ab` + churn divided by the wrong sigma.** Churn moves the model evaluation
+  to `sigma_hat`, but the sigma-space derivative divided by the un-churned
+  `sigma` (up to `1+gamma` = 1.414x high, gamma capped at `sqrt(2)-1`). `ab` is
+  deterministic-only, so `s_churn > 0` now falls back to `exp` like `eta` and
+  `cfg_pp`; `LAST_STATS["integrator"]` reports the path actually used.
+* **`final_extrapolate` paired churned x0 values with un-churned sigmas.** The
+  endpoint fit now receives the sigmas the model actually saw, recorded per
+  step; with churn off those are the raw schedule entries, so the default path
+  is unchanged.
+
+### Added
+
+* `corrector_cfgpp` (default false) on both nodes: run the trapezoidal corrector
+  under CFG++ by averaging the extra call's unconditional prediction with the
+  same trapezoid as x0. The post-CFG hook already captures that `u`; OFF keeps
+  the v1.0 rule (the corrector is skipped under CFG++). `cond == uncond` stays a
+  no-op to 2.2e-7 (eps) / 2.5e-7 (flow); +1 NFE (2x batch at cfg = 1).
+* `M: author pref (cfgpp+churn+eta+px)` A/B row: the registered
+  `omni_hybrid_cfgpp_author_pref` setting as one row, so the combination can be
+  compared with its parts at equal NFE.
+* `tools/test_cross_features.py`: the order clamp, the `ab` + churn fallback and
+  the endpoint-fit sigmas, each with a negative control.
+
+### Changed
+
+* `tools/local_metric.py`: the refined reference was read one node before the
+  shared endpoint (`substeps - 1` instead of `substeps`), and it used a fixed 16
+  substeps. The endpoint index is fixed, substeps now scale as
+  `max(--substeps, ceil(h / 0.2))`, and named deterministic variants
+  (`first,none,cfg_pp,cfg_pp_px,cfg_pp_corr,...`) replace the corrector-only
+  switch. It also repeats the first arm and its refined reference and refuses to
+  write a JSON unless both are bit-identical; the output name carries the
+  variant list. `docs/CORRECTIONS.md` records the superseded table, the
+  reproducibility failure, and the retraction.
+
+### Measured
+
+* **The local-error metric cannot resolve the corrector on MOSS, and the run
+  that looked like a win is retracted.** With the endpoint/substep fix the MOSS
+  table gave `first` 1.391e-1 vs `none` 1.533e-1 at interval 0 and a 0.8% mean
+  difference on intervals 1-5. A repeat check then falsified the instrument for
+  this model: two identical coarse runs from the same latent moved the final
+  x0 by 7.3% (zero start) and 50-67% (unit-variance start) at 512², and the
+  768² 51-substep reference repeated at 11.7%. Krea2 fails the same gate
+  (coarse 2.83e-1, reference 1.18e-1 at 10 steps, 512², cfg 1), so both modern
+  flow models are non-reproducible in this environment. The 1.4e-2 arm
+  difference is far below that drift, so no corrector conclusion is admissible
+  from these rows; the old "neutral within 1%" table is retracted as well.
+  `tools/local_metric.py` now repeats the first arm and its refined reference
+  and refuses to write a JSON unless both are bit-identical.
+* **Corrector under CFG++ (same instrument, same model).** `cfg_pp` vs
+  `cfg_pp_corr`: six-interval mean 2.864e-1 vs 2.868e-1; interval 0 2.384e-1 vs
+  2.239e-1; intervals 2-3 worse by ~1.7e-2. The same repeat failure applies, so
+  this is recorded as NOT RESOLVED — neither a win nor a loss.
+
 ### Repository
 
 * Documentation split by audience: `README.md` is now a short landing page
@@ -24,7 +95,9 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   instead of hard-coded absolute paths. The defaults are unchanged, so existing
   runs on the author's machine behave identically.
 
-No sampler behaviour changed in this release.
+The default build is behaviorally unchanged: `corrector_cfgpp` is off, `order`
+defaults to 2, churn defaults to 0 and `final_extrapolate` to 0. The only
+default-path difference is that `order=3/4` no longer pretends to run.
 
 ## v1.5.5 — 2026-11-01
 

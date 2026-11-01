@@ -40,8 +40,9 @@ Components and origin
 
 A third-order variant was implemented and measured but not shipped: on a fixed
 N-step schedule the first-order start-up step dominates (2.09 measured vs 3.0
-with an exact warm start), so it adds risk without benefit.  See
-tools/probe_orders.py.
+with an exact warm start), so it adds risk without benefit.  The `order` widget
+therefore clamps 3-4 to 2 on the exp path and records the value in force in
+LAST_STATS; `ab` still uses the full history.  See tools/probe_orders.py.
 """
 
 from __future__ import annotations
@@ -287,6 +288,8 @@ def _eta_gate(frac: float, window, softness: float) -> float:
 
 def _resolve_order(order, i, n_steps, lower_order_to_end):
     o = min(int(order), i + 1)  # one previous evaluation per extra order
+    # The exp path keeps only the one previous x0 (`hist_x0`), so callers pass
+    # order <= 2 there; `ab` keeps up to four derivatives.
     # The last step (sigma_t == 0) only returns the denoiser output, so "the
     # last N steps" must mean the last N *real* integration steps.
     first_lowered = n_steps - 1 - int(lower_order_to_end)
@@ -359,6 +362,9 @@ def _px_order_mask(hist, lam_mid, tol, smooth=True):
     This is the Runge validity test PD-AOS uses (`order_by_bound`), reduced to
     the one order omni's exponential integrator has.  It needs no probe and no
     extra model call: the three x0 values are already in the sampler's history.
+    Under CFG++ the caller applies the returned mask to the unconditional
+    extrapolation as well; a mask on x0 alone would break the no-op invariant
+    (docs/TECHNICAL.md, "CFG++ and what cfg means").
     """
     if len(hist) < 3:
         return None
@@ -497,6 +503,7 @@ def sample_omni(
     cfg_pp=False,
     cfg_pp_strength=0.5,
     corrector="first",
+    corrector_cfgpp=False,
     final_extrapolate=0.0,
     x0_average="ab2",
     min_step_ratio=0.5,
@@ -535,12 +542,25 @@ def sample_omni(
     one (or longer than max_step_lambda), the linear history fit is unreliable
     and the step falls back to first order.  Both are measured, not guessed.
 
+    ``order`` above 2 is clamped to 2 on the ``exp`` path: the third-order fit
+    was measured and removed (docs/ANALYSIS.md), and only ``ab`` keeps history
+    beyond the two newest nodes.
+
+    ``corrector_cfgpp`` allows the trapezoidal corrector under CFG++: the extra
+    evaluation also produces the unconditional prediction at the next node, and
+    both x0 and u are averaged with it, so the ``cond == uncond`` no-op
+    invariant survives.  OFF (the default) keeps the v1.0 rule: the corrector is
+    skipped under CFG++, because correcting only x0 would shift the guidance.
+
     ``px_order`` and ``cfg_map`` default OFF, and OFF is bit-identical to the
     sampler without them.  When ON:
 
     * ``px_order`` gives the order-2 extrapolation only to pixels whose
       Lagrange remainder is under ``px_order_tol`` (relative to local |x0|).
       Pixels over the bound run as order 1.  It costs no extra model call.
+      Under CFG++ the same mask is applied to the unconditional extrapolation:
+      the two histories must receive the same average or CFG++ stops being a
+      no-op when cond == uncond.
     * ``cfg_map`` builds an ``cfg_map_pool`` x ``cfg_map_pool`` map from the
       cond/uncond gap at the first step after ``cfg_map_start`` of the
       trajectory, then scales the guidance delta in later steps so the
@@ -681,12 +701,28 @@ def sample_omni(
     prev_lam = None
     prev_denoised = None
     prev_denoised2 = None
+    prev_sig_eval = None
+    prev_sig_eval2 = None
+    n_corr = 0
+    u_strength = 1.0
     d_hist = []
     d_nodes = []
     # Adams-Bashforth in sigma shares the ODE dx/dsigma = (x - x0)/sigma, which
     # holds for both families, but it has no exponential linearisation and no
     # OU noise term, so it is only used for the deterministic non-CFG++ case.
-    use_ab = (str(integrator).lower() == "ab") and eta <= _ETA_EPS and not cfgpp_active
+    # Churn also forces exp: it re-noises the state and moves the model
+    # evaluation to sigma_hat, where a sigma-space derivative must start; the
+    # sigma-space loop below integrates from the un-churned sigma.
+    use_ab = (
+        (str(integrator).lower() == "ab")
+        and eta <= _ETA_EPS
+        and not cfgpp_active
+        and float(s_churn) <= 0.0
+    )
+    # The exp path keeps one previous x0 (hist_x0), so it has no third-order
+    # history to consume.  Clamp it here, before _resolve_order, and record both
+    # the request and the value in force.
+    order_eff = int(order) if use_ab else min(int(order), 2)
 
     for i in comfy.utils.model_trange(n_steps, disable=disable):
         sigma_s = raw[i]
@@ -764,11 +800,14 @@ def sample_omni(
             )
 
         # ---- final step: output x0 (optionally extrapolated to sigma=0) ----
+        # The abscissae are the sigmas the model actually saw, not the schedule
+        # entries: with churn the two differ by sigma_hat/sigma = 1+gamma, and
+        # pairing a churned x0 with the un-churned sigma biases the fit.
         if sigma_t <= 0.0:
             x = _final_extrapolate(
                 denoised,
                 [prev_denoised2, prev_denoised, denoised],
-                [raw[i - 2] if i >= 2 else None, raw[i - 1] if i >= 1 else None, raw[i]],
+                [prev_sig_eval2, prev_sig_eval, sigma_eval],
                 final_extrapolate,
             )
             break
@@ -796,10 +835,11 @@ def sample_omni(
         if h <= 0.0 or not math.isfinite(h):
             x = denoised
             prev_denoised2, prev_denoised = prev_denoised, denoised
+            prev_sig_eval2, prev_sig_eval = prev_sig_eval, sigma_eval
             prev_lam = lam_s
             continue
 
-        order_used = _resolve_order(order, i, n_steps, lower_order_to_end)
+        order_used = _resolve_order(order_eff, i, n_steps, lower_order_to_end)
 
         # ---- Adams-Bashforth in sigma (ipndm/deis style, variable step) ----
         if use_ab:
@@ -819,6 +859,7 @@ def sample_omni(
                 x = x + w * dv
             hist_x0 = [denoised] + hist_x0[:1]
             prev_denoised2, prev_denoised = prev_denoised, denoised
+            prev_sig_eval2, prev_sig_eval = prev_sig_eval, sigma_eval
             prev_lam = lam_s
             if len(d_hist) > 4:
                 d_hist, d_nodes = d_hist[:4], d_nodes[:4]
@@ -834,6 +875,7 @@ def sample_omni(
         kappa = 0.0
         h_prev = 0.0
         extrapolate = False
+        px_mask = None
         if order_used >= 2 and hist_x0 and prev_lam is not None:
             h_prev = lam_from - prev_lam
             # stability gate: a much longer current step than the previous one
@@ -856,6 +898,7 @@ def sample_omni(
                     mask = _px_order_mask(px_hist, lam_from + kappa,
                                           px_order_tol, px_order_smooth)
                     if mask is not None:
+                        px_mask = mask
                         x0_eff = denoised + mask * (x0_eff - denoised)
                         px_steps += 1
                         px_mask_sum += float(mask.mean())
@@ -875,11 +918,16 @@ def sample_omni(
         if cfgpp_active and u_this_step is not None:
             s_u = float(cfg_pp_strength)
             s_u = 0.0 if s_u < 0.0 else (1.0 if s_u > 1.0 else s_u)
+            u_strength = s_u
             if s_u < 1.0:
                 u_this_step = denoised + s_u * (u_this_step - denoised)
             u_eff = u_this_step
             if extrapolate and hist_u:
-                u_eff = u_this_step + kappa * (u_this_step - hist_u[0]) / h_prev
+                # Same per-pixel gate as x0: applying the mask to only one of
+                # the two histories turns the difference into extra guidance,
+                # so cond == uncond would stop being a no-op.
+                w = px_mask if px_mask is not None else 1.0
+                u_eff = u_this_step + w * kappa * (u_this_step - hist_u[0]) / h_prev
             x_base = x - alpha_from * u_eff
             coef_x0 = 1.0
         else:
@@ -900,16 +948,36 @@ def sample_omni(
             return out
 
         # ---- optional trapezoidal corrector (one extra NFE) ----
-        # Not used with CFG++: the corrector refines the guided x0 but cannot
-        # re-evaluate the unconditional prediction at the predicted state, so it
-        # would shift the effective guidance.
-        if i in corr_steps and not cfgpp_active:
+        # Plain path: correct the guided x0 only.
+        # CFG++ path: OFF by default, because correcting x0 without correcting
+        # u would shift the guidance.  With corrector_cfgpp the extra call's
+        # unconditional prediction (captured by the post-CFG hook) is averaged
+        # into u with the same trapezoid, which keeps cond == uncond a no-op.
+        # If the hook did not deliver u, the step is left uncorrected rather
+        # than corrected asymmetrically.
+        do_corr = (i in corr_steps) and (
+            not cfgpp_active or (corrector_cfgpp and u_this_step is not None)
+        )
+        if do_corr:
             x_pred = advance(x0_eff, with_noise=False)
+            u_before = uncond_denoised
             x0_check = model(x_pred, sig_geo[i + 1] * s_in, **extra_args)
             n_calls += 1
-            x0_eff = 0.5 * (x0_eff + x0_check)
-            # the extra evaluation must not leak its (later) uncond into history
-            uncond_denoised = u_this_step
+            if cfgpp_active:
+                u_check_raw = uncond_denoised
+                uncond_denoised = u_before
+                if u_check_raw is not None:
+                    u_check = (u_check_raw if u_strength >= 1.0
+                               else x0_check + u_strength * (u_check_raw - x0_check))
+                    x0_eff = 0.5 * (x0_eff + x0_check)
+                    u_eff = 0.5 * (u_eff + u_check)
+                    x_base = x - alpha_from * u_eff
+                    n_corr += 1
+            else:
+                x0_eff = 0.5 * (x0_eff + x0_check)
+                # the extra evaluation must not leak its (later) uncond into history
+                uncond_denoised = u_this_step
+                n_corr += 1
 
         x = advance(x0_eff, with_noise=True)
 
@@ -918,6 +986,7 @@ def sample_omni(
         if u_this_step is not None:
             hist_u = [u_this_step] + hist_u[:1]
         prev_denoised2, prev_denoised = prev_denoised, denoised
+        prev_sig_eval2, prev_sig_eval = prev_sig_eval, sigma_eval
         prev_lam = lam_from
 
     if cfg_map and not cfg_map_seen and cfg_map_reason is None:
@@ -926,7 +995,11 @@ def sample_omni(
         "calls": int(n_calls),
         "steps": int(n_steps),
         "skipped": int(n_skipped),
-        "corrector_steps": int(len(corr_steps) if not cfgpp_active else 0),
+        "corrector_steps": int(n_corr),
+        "corrector_cfgpp": bool(corrector_cfgpp),
+        "order_requested": int(order),
+        "order_effective": int(order_eff),
+        "integrator": "ab" if use_ab else "exp",
         "px_order": bool(px_order),
         "px_order_tol": round(float(px_order_tol), 6),
         "px_order_steps": int(px_steps),
@@ -959,6 +1032,7 @@ DEFAULTS = dict(
     cfg_pp=False,
     cfg_pp_strength=0.5,
     corrector="first",
+    corrector_cfgpp=False,
     final_extrapolate=0.0,
     x0_average="ab2",
     min_step_ratio=0.5,
@@ -1002,6 +1076,16 @@ AB_PRESETS = {
     "J: no gate": {"min_step_ratio": 0.0},
     "K: per-pixel order": {"px_order": True},
     "L: region CFG map": {"cfg_map": True},
+    # The registered author-preference sampler name, as an A/B row so the node
+    # can compare the combination with its parts at equal NFE.  Same delta as
+    # VARIANTS["omni_hybrid_cfgpp_author_pref"].
+    "M: author pref (cfgpp+churn+eta+px)": {
+        "cfg_pp": True,
+        "s_churn": 100.0,
+        "churn_mode": "gamma",
+        "eta": 1.0,
+        "px_order": True,
+    },
 }
 
 # Registered preset variants (each also selectable through the Sampler node).
