@@ -1,9 +1,10 @@
 """Numerical verification of every formula used by omni_core.
 
-Run with the ComfyUI venv python (from the ComfyUI directory):
+Run with the ComfyUI venv python (from the repository root); COMFY_DIR
+overrides the default path:
 
-    $env:PYTHONPATH="G:\\AI\\comfy;...\\omni_sampler"
-    venv\\Scripts\\python.exe "...\\omni_sampler\\tools\\verify_math.py"
+    $env:COMFY_DIR = "C:\\path\\to\\ComfyUI"
+    & "$env:COMFY_DIR\\venv\\Scripts\\python.exe" tools\\verify_math.py
 
 Each check prints its measured deviation / convergence rate; the script exits
 non-zero if any check fails.  Nothing here is eyeballed.
@@ -20,6 +21,7 @@ import torch
 from scipy.integrate import solve_ivp
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.environ.get("COMFY_DIR", r"G:\AI\comfy"))
 
 import comfy.k_diffusion.sampling as kds
 

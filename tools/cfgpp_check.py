@@ -16,6 +16,7 @@ import sys
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.environ.get("COMFY_DIR", r"G:\AI\comfy"))
 
 import comfy.samplers
 import comfy.k_diffusion.sampling as kds

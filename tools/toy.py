@@ -14,10 +14,14 @@ tools/verify_math.py), so one reference integrator covers both.
 from __future__ import annotations
 
 import math
+import os
+import sys
 
 import numpy as np
 import torch
 from scipy.integrate import solve_ivp
+
+sys.path.insert(0, os.environ.get("COMFY_DIR", r"G:\AI\comfy"))
 
 import comfy.model_sampling
 
