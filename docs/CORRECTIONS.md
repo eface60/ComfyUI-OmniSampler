@@ -55,8 +55,9 @@ evidence behind v1.1's `corrector="auto"` default and the Krea2 side of v1.2.
 
 * `corrector` default reverted to `first` (the v1.0 behaviour). `auto` is still
   available and documented as a heuristic, not a measured win.
-* Real-model numbers in README/CHANGELOG are marked void; the analytic toy
-  numbers (exact ODE reference, no mode ambiguity at the endpoint) stand.
+* Real-model numbers in the [technical reference](TECHNICAL.md) and in
+  `CHANGELOG.md` are marked void; the analytic toy numbers (exact ODE reference,
+  no mode ambiguity at the endpoint) stand.
 
 ## What a valid metric would look like
 

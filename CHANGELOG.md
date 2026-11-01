@@ -7,9 +7,14 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 
 ### Repository
 
+* Documentation split by audience: `README.md` is now a short landing page
+  (what it is, install, which sampler name to pick), and everything technical —
+  the integrator, every knob, the benchmarks, the model-family findings, the
+  spatial controls and how to run the harness — moved to
+  `docs/TECHNICAL.md`. Pointers across the docs and code comments follow it.
 * Documentation reorganized: `ANALYSIS.md`, `AB_TESTING.md`, `CORRECTIONS.md`,
-  `EXPERIMENTS.md` and `PD_AOS_AUDIT.md` now live in `docs/`; the README is the
-  entry point and `tools/README.md` indexes the harness.
+  `EXPERIMENTS.md` and `PD_AOS_AUDIT.md` now live in `docs/`; `docs/README.md`
+  indexes the evidence and `tools/README.md` indexes the harness.
 * Added `LICENSE` (MIT) and `CONTRIBUTING.md`.
 * Fixed double-encoded UTF-8 in the Markdown files: the README's directory tree,
   the em dashes in several headings and the section symbols in
@@ -31,7 +36,8 @@ No sampler behaviour changed in this release.
   maximum (`s_churn=100`), `eta=1`, and `px_order` on; every other knob is the
   shipped default. Provenance: chosen by eye across the author's own runs, not
   a measured optimum — no benchmark covers this combination, and the churn,
-  eta and `px_order` measurements in README.md were taken at other values.
+  eta and `px_order` measurements in `docs/TECHNICAL.md` were taken at other
+  values.
 * `tools/test_node.py` now proves the preset's delta is exactly those five
   knobs, that `sample_omni` receives `DEFAULTS` plus that delta, and that
   `px_order` and CFG++'s corrector suppression are in force on a toy run. The
@@ -332,7 +338,8 @@ Verified on Krea2 ((1,4,64,64) -> (1,16,1,64,64), 7 evals) and MOSS
 
 Anima (Cosmos-derived, Qwen 0.6B TE only) measured too: the step-0 corrector
 *helps* there by ~0.004, against -0.016..-0.025 on Krea2/MOSS, so corrector=`auto`
-stays the expectation-weighted default and the caveat is documented in README.
+stays the expectation-weighted default and the caveat is documented in
+`docs/TECHNICAL.md`.
 
 Measured on modern flow-match models (Krea2 turbo int8 @ cfg 1, MOSS image
 int8 @ cfg 3.5, PixelDiT bf16) in addition to the analytic harness and SDXL.

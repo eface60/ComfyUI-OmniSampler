@@ -1,8 +1,8 @@
 # Benchmark and verification harness
 
-These scripts are how every number in the README was produced. They are never
-imported by ComfyUI; `omni_core.py`, `omni_nodes.py` and `__init__.py` are the
-whole runtime.
+These scripts are how every number in [docs/TECHNICAL.md](../docs/TECHNICAL.md)
+was produced. They are never imported by ComfyUI; `omni_core.py`,
+`omni_nodes.py` and `__init__.py` are the whole runtime.
 
 ## Running them
 
@@ -27,7 +27,7 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 | script | what it proves |
 |---|---|
 | [`verify_math.py`](verify_math.py) | every formula in `omni_core`: exact-step trajectory, the ODE identity, SDE marginals, quadrature kernel, convergence order, CFG++ algebra, model-family detection, equality with `dpmpp_2m`'s first step |
-| [`cfgpp_check.py`](cfgpp_check.py) | CFG++ invariants, the match with ComfyUI's `euler_cfg_pp`, and the effective-guidance table printed in the README |
+| [`cfgpp_check.py`](cfgpp_check.py) | CFG++ invariants, the match with ComfyUI's `euler_cfg_pp`, and the effective-guidance table printed in [docs/TECHNICAL.md](../docs/TECHNICAL.md#cfg-and-what-cfg-means) |
 | [`test_node.py`](test_node.py) | the names appear in the stock dropdowns, both nodes resolve them, and `KSAMPLER.sample()` lands within 4-6% of the analytic reference on both families |
 | [`test_node_parity.py`](test_node_parity.py) | both nodes expose the same knobs from one definition, every widget has a tooltip naming every combo choice, defaults agree with `omni_core.DEFAULTS`, the widget order stays a prefix (so saved workflows keep their values), and every knob reaches `sample_omni` |
 | [`verify_spatial.py`](verify_spatial.py) | `px_order` / `cfg_map` OFF is bit-identical to the previous release, ON reaches its site, and the map/mask algebra is correct |
@@ -35,7 +35,7 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 | [`test_node_emptylatent.py`](test_node_emptylatent.py) | the A/B node adapts a plain empty latent the way `common_ksampler` does |
 | [`probe_orders.py`](probe_orders.py) | the exact-kernel multistep coefficients and why 3rd order was not shipped |
 | [`toy.py`](toy.py) | the analytic test problem (Gaussian mixture, both families, DOP853 reference) the other scripts import |
-| [`toy_bench.py`](toy_bench.py) | every built-in ComfyUI sampler against omni on an exact ODE - the table in the README |
+| [`toy_bench.py`](toy_bench.py) | every built-in ComfyUI sampler against omni on an exact ODE - the table in [docs/TECHNICAL.md](../docs/TECHNICAL.md#measured-results) |
 | [`tune_integrator.py`](tune_integrator.py) | `exp` vs Adams-Bashforth, and against `ipndm` |
 | [`tune2.py`](tune2.py) | the remaining defaults: `lower_order_to_end`, `final_extrapolate`, `corrector` |
 

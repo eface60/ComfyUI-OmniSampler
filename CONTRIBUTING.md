@@ -11,8 +11,8 @@ that produces it".
    commit the script that produces that measurement. If a change cannot be
    measured, say so explicitly and keep the old behaviour as the default.
 2. **A finding lives in a script plus its output, not in prose.** If your change
-   contradicts a number in the README or in `docs/`, update that number or
-   record the correction — do not leave two versions of the same claim.
+   contradicts a number in `docs/`, update that number or record the correction —
+   do not leave two versions of the same claim.
 3. **Do not silently rename a widget.** ComfyUI stores widget values
    positionally, so inserting, removing or renaming a widget re-maps saved
    workflows. Append new widgets at the end; keep `variant` preset names stable.
@@ -51,7 +51,7 @@ request.
 |---|---|
 | a change to the integrator | `omni_core.py`, plus a check in `tools/verify_math.py` |
 | a change to a node, a widget or a tooltip | `omni_nodes.py`, plus parity coverage in `tools/test_node_parity.py` |
-| a bug found by a measurement | `docs/CORRECTIONS.md` (and mark the affected numbers in `README.md`) |
+| a bug found by a measurement | `docs/CORRECTIONS.md` (and mark the affected numbers in `docs/TECHNICAL.md`) |
 | a lead that did not ship | `docs/EXPERIMENTS.md` |
 | a change users will notice | `CHANGELOG.md`, under a version heading with a date |
 | a new benchmark | `tools/`, with a docstring saying what it measures and how to read the result |

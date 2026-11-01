@@ -40,7 +40,8 @@ Components and origin
 
 A third-order variant was implemented and measured but not shipped: on a fixed
 N-step schedule the first-order start-up step dominates (2.09 measured vs 3.0
-with an exact warm start), so it adds risk without benefit.  See README.
+with an exact warm start), so it adds risk without benefit.  See
+tools/probe_orders.py.
 """
 
 from __future__ import annotations
@@ -1012,8 +1013,8 @@ VARIANTS = {
     # churn at the slider maximum (100), eta 1.0 and the per-pixel order gate;
     # every other knob is the shipped default.  Chosen by eye across the
     # author's own runs, not by a measurement: no benchmark covers this
-    # combination, and the churn/eta/px_order numbers in README.md were taken
-    # at other values.
+    # combination, and the churn/eta/px_order numbers in docs/TECHNICAL.md were
+    # taken at other values.
     "omni_hybrid_cfgpp_author_pref": {
         "cfg_pp": True,
         "s_churn": 100.0,

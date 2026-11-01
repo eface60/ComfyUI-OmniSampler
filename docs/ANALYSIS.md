@@ -254,7 +254,8 @@ by applying the same kernel average to `u` (`hist_u`), disabling the corrector i
 CFG++ mode, and restoring the uncond value after the corrector's extra
 evaluation. `cfg_pp_strength` (0..1) then interpolates the noise estimate
 between the guided prediction (plain sampling) and the unconditional one
-(reference CFG++). The measured effective-cfg table is in the README.
+(reference CFG++). The measured effective-cfg table is in
+[TECHNICAL.md](TECHNICAL.md#cfg-and-what-cfg-means).
 
 ## 6. Flow-specific samplers and *RF* variants
 

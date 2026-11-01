@@ -1,10 +1,13 @@
 # Documentation
 
-The README is the entry point; these files carry the evidence behind it. Every
-number below is backed by a script in [`tools/`](../tools) that can be re-run.
+The [README](../README.md) is the entry point and the
+[technical reference](TECHNICAL.md) holds the details; the files below carry the
+evidence behind both. Every number is backed by a script in [`tools/`](../tools)
+that can be re-run.
 
 | document | what it answers |
 |---|---|
+| [TECHNICAL.md](TECHNICAL.md) | What the integrator does differently, every knob and its default, all benchmarks, and the caveats behind them. |
 | [ANALYSIS.md](ANALYSIS.md) | What each of ComfyUI's 45 built-in samplers actually does, and which parts Omni-Hybrid reuses — with the measured number for every component that was rejected. |
 | [AB_TESTING.md](AB_TESTING.md) | The A/B node's preset rows, how to compare two runs at equal NFE, and which knobs are still genuinely open questions. |
 | [EXPERIMENTS.md](EXPERIMENTS.md) | Leads taken from other custom-node packs, what was measured for each, and why nothing from them shipped. |
