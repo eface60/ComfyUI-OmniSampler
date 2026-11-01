@@ -2,7 +2,7 @@
 
 A single diffusion sampler that recombines the measured best parts of ComfyUI's
 45 built-in samplers, and fixes the parts that are only correct for
-epsilon-prediction models. It installs as a normal custom node, registers three
+epsilon-prediction models. It installs as a normal custom node, registers four
 names in the stock **KSampler / KSamplerAdvanced / KSamplerSelect** dropdowns,
 and exposes two nodes that share every sampler knob: a full KSampler with an
 A/B preset switch, and a SAMPLER-object node for
@@ -38,8 +38,9 @@ and restart ComfyUI. Nothing in `comfy/` is modified on disk; the sampler names
 are appended to the in-memory registries at import.
 
 Then in **KSampler** pick `omni_hybrid` (or `omni_hybrid_sde`,
-`omni_hybrid_cfg_pp`). In `SamplerCustomAdvanced`, either pick one of those
-names or use **Omni-Hybrid Sampler (select)** for full control.
+`omni_hybrid_cfg_pp`, `omni_hybrid_cfgpp_author_pref`). In
+`SamplerCustomAdvanced`, either pick one of those names or use
+**Omni-Hybrid Sampler (select)** for full control.
 
 ## What makes it different
 
@@ -359,4 +360,18 @@ Measured on MOSS at cfg 3.5, 12 steps: plain euler_gamma 0.826, euler_gamma+CFG+
 The same review found and fixed a real bug: when churn moved the state to
 `sigma_hat`, the step still integrated from the original sigma, so the injected
 noise was never removed. Steps now start at `sigma_hat`, matching k-diffusion.
+
+## Author preference preset (v1.5.5)
+
+`omni_hybrid_cfgpp_author_pref` is the author's own everyday setting: CFG++ on
+(`cfg_pp_strength` 0.5, the default), gamma churn at the slider maximum
+(`s_churn=100`), `eta=1`, and the `px_order` gate on. Every other knob is the
+shipped default from the table above.
+
+This one is a preference, not a measured optimum: chosen by eye across the
+author's own runs, with no benchmark covering the combination — the churn, eta
+and `px_order` numbers in this README were taken at other values. The documented
+laws still apply: the gamma mode skips any step where its offset would exceed
+the schedule's first sigma, and CFG++ at `cfg=1` forces the unconditional pass
+(a 2x model batch).
 

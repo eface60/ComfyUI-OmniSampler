@@ -1008,6 +1008,19 @@ VARIANTS = {
     "omni_hybrid": {},                       # measured defaults
     "omni_hybrid_sde": {"eta": 0.5},         # mid-trajectory stochasticity
     "omni_hybrid_cfg_pp": {"cfg_pp": True},  # CFG++ guidance
+    # The author's own everyday setting, copied from the A/B node: CFG++, gamma
+    # churn at the slider maximum (100), eta 1.0 and the per-pixel order gate;
+    # every other knob is the shipped default.  Chosen by eye across the
+    # author's own runs, not by a measurement: no benchmark covers this
+    # combination, and the churn/eta/px_order numbers in README.md were taken
+    # at other values.
+    "omni_hybrid_cfgpp_author_pref": {
+        "cfg_pp": True,
+        "s_churn": 100.0,
+        "churn_mode": "gamma",
+        "eta": 1.0,
+        "px_order": True,
+    },
 }
 
 

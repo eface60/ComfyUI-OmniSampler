@@ -1,4 +1,26 @@
-﻿## v1.5.4 — 2026-10-31
+﻿## v1.5.5 — 2026-11-01
+
+### Added
+
+* `omni_hybrid_cfgpp_author_pref`, a fourth registered sampler name in the
+  stock KSampler / KSamplerAdvanced / KSamplerSelect dropdowns. It is the
+  author's own everyday A/B-node setting: CFG++ on, gamma churn at the slider
+  maximum (`s_churn=100`), `eta=1`, and `px_order` on; every other knob is the
+  shipped default. Provenance: chosen by eye across the author's own runs, not
+  a measured optimum — no benchmark covers this combination, and the churn,
+  eta and `px_order` measurements in README.md were taken at other values.
+* `tools/test_node.py` now proves the preset's delta is exactly those five
+  knobs, that `sample_omni` receives `DEFAULTS` plus that delta, and that
+  `px_order` and CFG++'s corrector suppression are in force on a toy run. The
+  toy noise comes from its own generator, so a stochastic test cannot shift the
+  existing end-to-end numbers.
+
+### Notes
+
+* The three existing sampler names are unchanged; this adds a dropdown entry
+  and touches no default.
+
+## v1.5.4 — 2026-10-31
 
 ### Code audit: CFG++ does not run the unconditional twice at cfg > 1
 
