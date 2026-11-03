@@ -73,11 +73,12 @@ Same prompt, seed, 12 steps, cfg 1, `simple` scheduler. Run at 1024x1408 and at
 | `plain` | -- | baseline artifacts, no guidance at all |
 | `probe` | `gap_stats` | is the gap bigger / more low-frequency at 6 MP? (**H1/H2**, output unchanged) |
 | `cfgpp` | `cfg_pp`, strength 1.0 | the burn to fix |
+| `s05` | `cfg_pp`, strength 0.5 | the artifacts you are coming from (the shipped default) |
 | `hf` | `cfg_pp 1.0`, `gap_lf 0.05` | does removing the tone band keep the clean image and kill the burn? (**H1**) |
 | `cap` | `cfg_pp 1.0`, `gap_cap 0.2` | does bounding the overshoot do it? (**H2**) |
 | `hf_cap` | both | the combination the preset `omni_hybrid_gap` uses |
 | `project` | `gap_parallel 0` | contrast-only component removed |
-| `cfgpp_cfg2` | `cfg_pp 1.0`, cfg 2 | the gain-matched control from `cfgpp_check.py` |
+| `cfg2` | `cfg_pp 1.0`, cfg 2 | the gain-matched control from `cfgpp_check.py` |
 
 Read: saved PNGs, the reference-free metrics the runner prints (`sat` mean
 chroma, `clip` fraction of pixels at the rail, `hf` Laplacian energy in flat

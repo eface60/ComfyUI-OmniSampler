@@ -20,6 +20,7 @@ Arms (docs/EXPERIMENT_GAP_SHAPING.md says what each one answers):
     plain    no guidance at all                   (baseline artifacts)
     probe    gap_stats only, image unchanged      (is the gap different at 6 MP?)
     cfgpp    CFG++ strength 1.0                   (the burn)
+    s05      CFG++ strength 0.5                   (the artifacts)
     hf       CFG++ + gap_lf 0.05                  (tone band moved to u)
     cap      CFG++ + gap_cap 0.2                  (bounded overshoot)
     hf_cap   CFG++ + both                         (the omni_hybrid_gap preset)
@@ -61,6 +62,7 @@ ARMS = {
     "plain": ({}, 1.0),
     "probe": ({"gap_stats": True}, 1.0),
     "cfgpp": (dict(CFGPP), 1.0),
+    "s05": ({"cfg_pp": True, "cfg_pp_strength": 0.5}, 1.0),
     "hf": ({**CFGPP, "gap_lf": 0.05, "gap_lf_keep": 0.0}, 1.0),
     "cap": ({**CFGPP, "gap_cap": 0.2}, 1.0),
     "hf_cap": ({**CFGPP, "gap_lf": 0.05, "gap_lf_keep": 0.0, "gap_cap": 0.2}, 1.0),
