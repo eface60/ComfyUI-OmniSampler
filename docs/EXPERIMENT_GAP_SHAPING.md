@@ -109,6 +109,37 @@ exist in this data.
   fix. The part of the design the sweep does support is the band as a fraction of
   the short side; the cap's tolerance remains a judgement call.
 
+## Per-model failure modes at 6 MP
+
+The author's notes on the same three checkpoints at 2048x2944, which the sweep
+numbers agree with:
+
+| model | 6 MP behaviour | cause | sampler leverage |
+|---|---|---|---|
+| Krea2 turbo (distilled, cfg 1) | burns at any effective cfg > 1; artifacts without guidance | a distilled checkpoint is trained to *reproduce* a guided output at cfg 1, so re-adding guidance oversaturates; 6 MP is also outside its training sizes | none from strength: any CFG++ strength > 0 adds guidance (below) |
+| Anima base 1.0 | artifacts at cfg 1 *and* cfg > 1, no burn | 6 MP native is out of distribution; the artifacts are not guidance-shaped | none via guidance |
+| MOSS base | fine | in distribution | -- |
+
+**Why Krea2 has no non-burning CFG++ setting.** At cfg 1 with strength `s` the
+step's extra guidance term is `s * alpha_t * e^-h * delta`, and the state
+difference between re-noising with the unconditional and the conditional
+prediction is exactly the same term:
+
+```
+sigma_t * (eps_u - eps_c) = sigma_t * alpha_s / sigma_s * delta = alpha_t * e^-h * delta
+```
+
+So "use the unconditional noise" and "add guidance" are not two things a knob
+can trade off: `s = 0` is plain sampling, and every `s > 0` is guidance in
+proportion to `s`. A checkpoint that burns at any cfg > 1 therefore has exactly
+one non-burning CFG++ setting, and it is the one that no longer does the thing
+that removed the artifacts.
+
+This also reframes the sweep's main result: the 6 MP delta is *smaller* than the
+1.4 MP one, so the burn is not more guidance -- it is a **lower tolerance for the
+same guidance** at a size the model was not trained on. Which is why no
+delta-magnitude or delta-spectrum transform in this branch can remove it.
+
 ## The fix under test
 
 Leave the *amount* of guidance (cfg) alone and shape *what the gap does*, in x0
@@ -125,6 +156,23 @@ prediction on every model family, so the same code covers eps and flow models,
 and it covers plain `cfg > 1`, the forced-unconditional path at `cfg = 1`, and
 CFG++ (CFG++ then uses the shaped delta as its signal and the raw uncond as its
 noise). No extra model call.
+
+## What is still worth testing
+
+1. **`gap_parallel 0` (APG) at 6 MP.** The only knob here that targets the
+   saturation direction rather than tone or magnitude: it removes the component
+   of the delta along the conditional prediction, which is the part that scales
+   it up. One render decides it -- if Krea2 still burns with that component
+   removed, guidance itself is the burn and this branch is closed.
+2. **Plain at 6 MP** (no guidance at all). If it does not burn, the honest
+   trade-off is "artifacts without guidance, burn with it" and the workflow
+   question becomes which artifact is cheaper; if it burns too, the artifacts are
+   out of distribution and no sampler-side change can fix them.
+3. **Two-stage workflow** instead of 6 MP native: base at 1024x1408 with CFG++
+   (known good), latent upscale, then a *plain* `cfg 1` pass at 0.35-0.5 denoise
+   at 6 MP. The detail pass has a short trajectory (little guidance) and, being
+   plain, adds none -- which is the only combination this data leaves open for a
+   distilled checkpoint.
 
 ## How to run
 

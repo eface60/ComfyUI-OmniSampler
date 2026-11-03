@@ -48,7 +48,13 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   falsifies the resolution hypothesis behind the gap shaping: the 6 MP burn has
   to come from outside the guidance delta (decode, attention at ~94k tokens, or
   the model's own OOD content). `tools/gap_sweep.py` + `tools/gap_report.py`
-  reproduce the tables.
+  reproduce the tables. Author's notes on the same checkpoints narrow it further:
+  Krea2 is a distilled model and burns at *any* effective cfg > 1 (so CFG++ at
+  strength > 0 burns by construction, since the unconditional-noise term and the
+  guidance term are algebraically the same quantity), Anima shows artifacts at
+  6 MP native with and without guidance, and MOSS is fine -- i.e. the 6 MP
+  failures are per-checkpoint out-of-distribution behaviour, not a sampler
+  defect, and the branch is closed except for the APG test.
 
 ### Fixed
 
