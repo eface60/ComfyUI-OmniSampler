@@ -13,8 +13,9 @@ fixes the step size that `dpmpp_2m`, `ipndm`, `res_multistep` and friends comput
 for epsilon models only — a mismatch that costs them accuracy on flow models.
 
 It installs as a normal custom node: four extra names in the stock sampler
-dropdowns, plus two nodes if you want control over every knob. Every default is
-backed by a measurement, and the scripts that produced them ship with the repo.
+dropdowns (this branch adds a fifth, the experimental `omni_hybrid_gap`), plus
+two nodes if you want control over every knob. Every default is backed by a
+measurement, and the scripts that produced them ship with the repo.
 
 ## Install
 
@@ -41,6 +42,7 @@ four names where you would normally choose `dpmpp_2m`:
 | `omni_hybrid_sde` | the same integrator with SDE noise in the middle of the trajectory (`eta=0.5`) | when you want more variation between seeds |
 | `omni_hybrid_cfg_pp` | CFG++ guidance: the unconditional prediction becomes the noise estimate | normal-cfg models (cfg > 1), not distilled cfg-1 checkpoints |
 | `omni_hybrid_cfgpp_author_pref` | the author's everyday setting: CFG++, gamma churn at maximum, `eta=1`, per-pixel order gate | a preference, not a measured optimum — try it if you like the look |
+| `omni_hybrid_gap` | **experiment branch only**: CFG++ 1.0 with the low-frequency part of the guidance delta moved back to the unconditional prediction and the delta capped (`gap_lf 0.05`, `gap_cap 0.2`) | trying to fix the 6 MP burn ([the experiment](docs/EXPERIMENT_GAP_SHAPING.md)); unmeasured, and not part of a release |
 
 Steps, cfg, scheduler and denoise work exactly as they did before; the sampler
 only replaces the step update.

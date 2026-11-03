@@ -32,6 +32,7 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 | [`test_node.py`](test_node.py) | the names appear in the stock dropdowns, both nodes resolve them, and `KSAMPLER.sample()` lands within 4-6% of the analytic reference on both families |
 | [`test_node_parity.py`](test_node_parity.py) | both nodes expose the same knobs from one definition, every widget has a tooltip naming every combo choice, defaults agree with `omni_core.DEFAULTS`, the widget order stays a prefix (so saved workflows keep their values), and every knob reaches `sample_omni` |
 | [`verify_spatial.py`](verify_spatial.py) | `px_order` / `cfg_map` OFF is bit-identical to the previous release, ON reaches its site, and the map/mask algebra is correct |
+| [`gap_shape_check.py`](gap_shape_check.py) | guidance-gap shaping: neutral is bit-identical, `cond == uncond` stays a no-op with every knob on, the cap bound/direction, the split's band algebra, the projection, 5-D latents, and a tone-vs-structure demonstration through ComfyUI's real post-CFG hook |
 | [`test_eta_seed.py`](test_eta_seed.py) | `eta > 0` accepts negative seeds, reproduces the same latent for the same seed, and never builds a noise sampler when `eta=0` |
 | [`test_node_emptylatent.py`](test_node_emptylatent.py) | the A/B node adapts a plain empty latent the way `common_ksampler` does |
 | [`probe_orders.py`](probe_orders.py) | the exact-kernel multistep coefficients and why 3rd order was not shipped |
@@ -51,6 +52,7 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 | [`latent_bench.py`](latent_bench.py) | the same comparison in latent space, with decoded previews optional |
 | [`local_metric.py`](local_metric.py) | per-interval local ODE error - the only mode-free real-model metric here; the refined reference uses the endpoint node and `max(--substeps, ceil(h/0.2))` substeps, named deterministic variants (`first,none,cfg_pp,...`), and a repeat gate that refuses to write numbers unless the first arm and its reference are bit-identical |
 | [`spatial_ab.py`](spatial_ab.py) | `px_order` / `cfg_map` A/B with a repeated-base control |
+| [`gap_shape_bench.py`](gap_shape_bench.py) | the guidance-gap matrix at a chosen resolution (default 1024x1408): plain / CFG++ / HF / cap / both / project, with reference-free burn + grain metrics and the per-step gap statistics; `--res 2048x2944` for the 6 MP case |
 | [`test_node_ab.py`](test_node_ab.py) | the full A/B node on a real flow model: four presets, wall time, latent distance |
 | [`nfe_audit.py`](nfe_audit.py) | real model evaluations and wall time per variant |
 | [`time_breakdown.py`](time_breakdown.py) | model evaluations vs sampler overhead |

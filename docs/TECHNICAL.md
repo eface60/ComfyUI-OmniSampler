@@ -13,6 +13,7 @@ that failed — that chose the defaults. Every number here comes from a script i
 - [Measured results](#measured-results)
 - [Notes by model family](#notes-by-model-family)
 - [Optional spatial controls](#optional-spatial-controls-v15-off-by-default)
+- [Guidance-gap shaping (experiment branch)](#guidance-gap-shaping-experiment-branch-off-by-default)
 - [Limitations](#limitations)
 - [Verify it yourself](#verify-it-yourself)
 - [Where the evidence lives](#where-the-evidence-lives)
@@ -76,6 +77,11 @@ safe-fallback values, because their measurement is a caution, not a win; see the
 | `cfg_map` | false | late 8×8 per-region CFG map; needs cfg > 1 and no CFG++ |
 | `cfg_map_floor` | 0.85 | fraction of the late guidance delta kept in the lowest-gap region |
 | `cfg_map_start` | 0.5 | trajectory fraction where the cond/uncond gap is measured |
+| `gap_lf` | 0.0 | experimental: remove the guidance delta's low-frequency band, as a fraction of the latent's short side (0 = off; see the gap-shaping section) |
+| `gap_lf_keep` | 0.0 | fraction of that band kept (damps the removal instead of removing it) |
+| `gap_cap` | 0.0 | per-pixel cap on the delta, as a multiple of the local unconditional magnitude (0 = off) |
+| `gap_parallel` | 1.0 | fraction of the delta's component along the conditional prediction kept (1 = unchanged, 0 = projected away) |
+| `gap_stats` | false | record the per-step cond/uncond gap in `LAST_STATS` without changing the output; at cfg = 1 this forces the unconditional pass (2x batch) |
 
 The same A/B preset rows are available on both nodes through `variant`
 (see [AB_TESTING.md](AB_TESTING.md)). A preset overrides only the settings it
@@ -336,6 +342,48 @@ originals (the guidance ramp never starts on short `simple` schedules, and the
 operator can judge the appearance; the numbers above are not a substitute for
 that.
 
+## Guidance-gap shaping (experiment branch, OFF by default)
+
+**Not a release feature and not measured on a real model.** The branch
+`experiments/gap-shaping` exists to test one observation: Krea2 turbo at
+2048×2944 (12 steps, cfg 1) is artifact-free but burns with `cfg_pp_strength`
+1.0, artifacts with 0.5, and fine at 1024×1408. The full case, the hypothesis
+and the matrix are in
+[EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md).
+
+The quantity being shaped is the guidance delta, `denoised - uncond`, in x0
+space. At `cfg == 1` the strength knob has a literal meaning: it is the fraction
+of the cond/uncond gap that becomes guidance (the guided target *is* the
+conditional prediction, so there is no cfg-1 no-op mode -- `tools/cfgpp_check.py`
+measures cfg 1 at strength 1 as plain cfg ≈ 2.5 at 12 steps). On a distilled
+cfg-1 model that extra guidance is a burn; at strength 0.5 half of the gap goes
+into the noise estimate instead, which is where the artifacts come from.
+
+Four knobs rewrite the delta before it enters the step, in this order:
+projection (`gap_parallel`) → low-pass split (`gap_lf` / `gap_lf_keep`) → cap
+(`gap_cap`). Because every model family hands the post-CFG hook a denoised
+prediction, the same code covers eps and flow models, plain `cfg > 1`, the
+forced-unconditional path at `cfg = 1`, and CFG++ (which then uses the shaped
+delta as its signal and the raw uncond as its noise). It adds no model call;
+the cost is the forced unconditional pass at `cfg = 1` that CFG++ already pays.
+
+Defaults are neutral and install no hook, so OFF is bit-identical. The knobs are
+also state-free: they depend only on the current prediction, so the
+`cond == uncond` no-op and `strength=0 == plain` invariants survive
+(`tools/gap_shape_check.py`). `gap_stats` measures the gap without changing the
+output: per step it records `rms_ratio` (`||delta||/||uncond||`), `lf_share`
+(energy fraction below 5% of the short side) and `par_share` (energy fraction
+along the conditional prediction), plus the mean applied cap scale when the cap
+fires. That is the measurement the hypothesis is judged by: a 1024×1408 run and
+a 2048×2944 run are compared on those numbers.
+
+`tools/gap_shape_check.py` demonstrates the intended mechanism on a synthetic
+pair: a smooth exposure-like delta plus a checkerboard "structure" delta,
+through ComfyUI's real post-CFG hook. With `gap_lf` 0.2 the tone energy is
+removed to 0.2% and the structure survives with cosine 0.99; with `gap_cap` 0.2
+the per-pixel bound holds exactly. `tools/gap_shape_bench.py` runs the real-model
+matrix.
+
 ## Limitations
 
 * The toy benchmark measures ODE convergence and mode fidelity, not aesthetics.
@@ -353,6 +401,11 @@ that.
 * `corrector_cfgpp` is wired and its no-op invariant is verified, but no
   real-model accuracy comparison has been run: the corrector itself is still an
   open question (see [CORRECTIONS.md](CORRECTIONS.md)).
+* The gap-shaping knobs are experimental and neutral by default. They are
+  invariants-verified and demonstrated on a synthetic tone/structure pair, but
+  the real-model matrix in [EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md)
+  has not been run yet, so no value of `gap_lf` / `gap_cap` / `gap_parallel` is a
+  measured optimum.
 * The only mode-free real-model instrument is `tools/local_metric.py`; its
   first-interval reference is only resolved when the substep count scales with
   the interval's `lambda` gap (the default does), and it refuses to write

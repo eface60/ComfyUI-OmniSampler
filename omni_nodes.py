@@ -80,7 +80,10 @@ _KNOB_SPECS = {
                 "K: per-pixel order = px_order on; "
                 "L: region CFG map = cfg_map on; "
                 "M: author pref (cfgpp+churn+eta+px) = cfg_pp on, gamma churn 100, eta 1.0, "
-                "px_order on (the registered author-preference name). "
+                "px_order on (the registered author-preference name); "
+                "N: gap HF (5%) = gap_lf 0.05; O: gap cap 0.2 = gap_cap 0.2; "
+                "P: gap HF + cap = both; Q: gap probe (no shaping) = gap_stats on "
+                "(experimental guidance-gap shaping, docs/EXPERIMENT_GAP_SHAPING.md). "
                 "A preset overrides only the knobs it names; custom (use knobs) "
                 "uses every knob as set."
             ),
@@ -439,6 +442,96 @@ _KNOB_SPECS = {
             ),
         },
     ),
+    "gap_lf": (
+        "FLOAT",
+        {
+            "default": DEFAULTS["gap_lf"],
+            "min": 0.0,
+            "max": 0.5,
+            "step": 0.01,
+            "round": False,
+            "tooltip": (
+                "Experimental: guidance-gap shaping. Removes the low-frequency "
+                "band of the guidance delta (conditional minus unconditional "
+                "prediction) so the step's tone comes from the unconditional "
+                "prediction and its structure from the conditional one. The value "
+                "is the band width as a fraction of the latent's short side: 0 = "
+                "off, 0.05 removes everything coarser than about 5% of the image "
+                "(24 px at 1024, 100 px at 2048 -- the same look at any "
+                "resolution). Works on eps and flow models, for plain cfg > 1, "
+                "cfg = 1 with gap_stats, and CFG++; costs no extra model call. 0 is "
+                "bit-identical to the release. Unmeasured: test it, do not assume "
+                "it helps. See docs/EXPERIMENT_GAP_SHAPING.md."
+            ),
+        },
+    ),
+    "gap_lf_keep": (
+        "FLOAT",
+        {
+            "default": DEFAULTS["gap_lf_keep"],
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05,
+            "round": False,
+            "tooltip": (
+                "Only used when gap_lf > 0. The fraction of that low-frequency "
+                "band kept: 0 = move the whole band to the unconditional "
+                "prediction (default), 0.5 = damp it by half, 1 = keep it (no "
+                "effect). The mid values are for when removing the band shifts "
+                "the colour too far from the prompt."
+            ),
+        },
+    ),
+    "gap_cap": (
+        "FLOAT",
+        {
+            "default": DEFAULTS["gap_cap"],
+            "min": 0.0,
+            "max": 2.0,
+            "step": 0.01,
+            "round": False,
+            "tooltip": (
+                "Experimental: cap the per-pixel guidance delta at this multiple "
+                "of the local unconditional prediction (0 = off). Direction is "
+                "preserved, only the overshoot is bounded, so it engages exactly "
+                "where the conditional prediction has run away from the prior -- "
+                "which is what out-of-training resolutions do to the cond/uncond "
+                "gap. 0.1-0.3 is the range worth testing; 0 is bit-identical."
+            ),
+        },
+    ),
+    "gap_parallel": (
+        "FLOAT",
+        {
+            "default": DEFAULTS["gap_parallel"],
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05,
+            "round": False,
+            "tooltip": (
+                "Experimental: keep this fraction of the delta's component along "
+                "the conditional prediction, i.e. the part that scales it up or "
+                "down (contrast/exposure). 1 = unchanged (default), 0 = APG-style "
+                "projection that keeps only the prompt-specific orthogonal part. "
+                "Needs a conditional prediction. 1 is bit-identical."
+            ),
+        },
+    ),
+    "gap_stats": (
+        "BOOLEAN",
+        {
+            "default": DEFAULTS["gap_stats"],
+            "tooltip": (
+                "Experimental: measure without changing anything. Records the "
+                "cond/uncond gap per step (rms ratio, low-frequency share, "
+                "parallel share) and prints the means in the config string; the "
+                "image is bit-identical. At cfg = 1 this forces the unconditional "
+                "pass, so the model batch doubles -- that is the cost of measuring "
+                "a gap that otherwise does not exist. Use it to compare a "
+                "low-resolution run with a high-resolution one."
+            ),
+        },
+    ),
 }
 
 
@@ -512,6 +605,9 @@ _V151_SELECT_ORDER = [
 ]
 _SELECT_ORDER = _V151_SELECT_ORDER + [
     "churn_mode", "skip_every", "skip_order", "variant", "corrector_cfgpp",
+    # Experimental guidance-gap shaping (docs/EXPERIMENT_GAP_SHAPING.md).
+    # Appended last so every saved workflow keeps its positional values.
+    "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_stats",
 ]
 
 _V151_KSAMPLER_ORDER = [
@@ -520,7 +616,10 @@ _V151_KSAMPLER_ORDER = [
     "churn_mode", "noise_mode", "skip_every", "skip_order", "final_extrapolate",
     "px_order", "px_order_tol", "cfg_map", "cfg_map_floor", "cfg_map_start",
 ]
-_KSAMPLER_ORDER = _V151_KSAMPLER_ORDER + ["eta_window", "corrector_cfgpp"]
+_KSAMPLER_ORDER = _V151_KSAMPLER_ORDER + [
+    "eta_window", "corrector_cfgpp",
+    "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_stats",
+]
 
 
 class OmniSamplerSelect:
@@ -691,6 +790,31 @@ class OmniKSampler:
             churn = f" | churn {omni_core.LAST_STATS.get('churn_steps', 0)}/{n} steps"
             if omni_core.LAST_STATS.get("churn_capped"):
                 churn += f" ({omni_core.LAST_STATS['churn_capped']} capped)"
+        # Gap shaping: report what the hook saw, not only what was asked for. The
+        # means are the measurement the experiment is built on (they are what a
+        # 1024 and a 2048 run are compared with), and `reason` says why a run did
+        # not measure anything.
+        gap = ""
+        st = omni_core.LAST_STATS
+        if st.get("gap_shape") or st.get("gap_stats"):
+            bits = [f"gap lf={st.get('gap_lf')} keep={st.get('gap_lf_keep')}"
+                    f" cap={st.get('gap_cap')} par={st.get('gap_parallel')}"]
+            for key, label in (("gap_rms_ratio_mean", "rms"),
+                               ("gap_lf_share_mean", "lf"),
+                               ("gap_par_share_mean", "par"),
+                               ("gap_cap_mean", "capx")):
+                if st.get(key) is not None:
+                    bits.append(f"{label} {st[key]:.2f}")
+            if st.get("gap_reason"):
+                bits.append(f"reason={st['gap_reason']}")
+            gap = " | " + " ".join(bits)
+        gap_on = ((float(opts.get("gap_lf", DEFAULTS["gap_lf"])) > 0.0
+                   and float(opts.get("gap_lf_keep", DEFAULTS["gap_lf_keep"])) < 1.0)
+                  or float(opts.get("gap_cap", DEFAULTS["gap_cap"])) > 0.0
+                  or float(opts.get("gap_parallel", DEFAULTS["gap_parallel"])) < 1.0
+                  or bool(opts.get("gap_stats", DEFAULTS["gap_stats"])))
+        if gap_on and cfg <= 1.0 and not opts.get("cfg_pp"):
+            gap += " | gap batch x2 (cfg=1 uncond pass forced)"
         summary = (
             f"variant={variant} flow={flow} steps={n} cfg={cfg} scheduler={scheduler} "
             f"evals={omni_core.LAST_STATS.get('calls', evals + extra)}"
@@ -698,6 +822,7 @@ class OmniKSampler:
             + spatial
             + effective
             + churn
+            + gap
             + (" | cfg++ batch x2 (cfg=1 uncond pass forced)" if opts.get("cfg_pp") and cfg <= 1.0
                else " | cfg++ free (uncond already evaluated)" if opts.get("cfg_pp") else "")
         )

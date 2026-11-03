@@ -5,6 +5,37 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 
 ## Unreleased
 
+### Added (experiment branch `experiments/gap-shaping`, OFF by default)
+
+* **Guidance-gap shaping.** The cond/uncond delta is the only thing CFG adds to
+  a step, and it is the same object for eps and flow models and for every
+  guidance path (plain `cfg > 1`, the forced-unconditional path at `cfg = 1`,
+  CFG++). Four neutral-by-default knobs rewrite it in x0 space in the existing
+  post-CFG hook: `gap_parallel` (keep that fraction of the component along the
+  conditional prediction), `gap_lf` / `gap_lf_keep` (move a low-frequency band of
+  the delta back to the unconditional prediction; the band is a fraction of the
+  latent's short side, so one value means the same thing at every resolution),
+  and `gap_cap` (per-pixel cap at that multiple of the local unconditional
+  magnitude, direction preserved). No extra model call; at `cfg = 1` any gap
+  feature forces the unconditional pass, the 2x batch CFG++ already pays there.
+  OFF is bit-identical (no hook is installed), and the `cond == uncond` no-op and
+  `strength=0 == plain` invariants survive
+  (`tools/gap_shape_check.py`).
+* **`gap_stats`**: records the per-step gap in `LAST_STATS` without changing the
+  output -- `rms_ratio`, `lf_share`, `par_share`, the applied cap scale, and a
+  `gap_series` of `(sigma, metrics)`. This is the measurement the branch exists
+  for: it is how a 1024x1408 run and a 2048x2944 run are compared. The node
+  prints the means in its config string.
+* A/B rows `N: gap HF (5%)`, `O: gap cap 0.2`, `P: gap HF + cap`,
+  `Q: gap probe (no shaping)`, and the registered sampler name
+  `omni_hybrid_gap` (CFG++ 1.0 + `gap_lf 0.05` + `gap_cap 0.2`) so the setting
+  can be tested from a stock KSampler. The values are the experiment's starting
+  points, not measurements; no release name changes.
+* `tools/gap_shape_check.py` (invariants, and a synthetic tone/structure
+  demonstration through ComfyUI's real post-CFG hook) and
+  `tools/gap_shape_bench.py` (the real-model matrix at a chosen resolution).
+  The case and what would falsify it: [docs/EXPERIMENT_GAP_SHAPING.md](docs/EXPERIMENT_GAP_SHAPING.md).
+
 ### Fixed
 
 * **Karras churn evaluated a flow model above its `sigma` domain.** A flow model

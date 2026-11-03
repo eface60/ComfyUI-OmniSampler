@@ -452,6 +452,148 @@ def _apply_cfg_map(den, uncond, scale, cmap):
     return uncond + (den - uncond) * ratio
 
 
+# --------------------------------------------------------------------------
+# Guidance-gap shaping (experimental, OFF by default)
+# --------------------------------------------------------------------------
+# The guidance delta -- the conditional minus the unconditional prediction, in
+# x0 space -- is the only thing CFG adds to a step.  It is the same object for
+# every model family (an eps model and a flow model both hand the post-CFG hook
+# a denoised prediction) and for every guidance path (plain cfg > 1, cfg = 1
+# with the unconditional pass forced, and CFG++), so shaping it applies to all
+# of them at once instead of patching one path.  See
+# docs/EXPERIMENT_GAP_SHAPING.md for the measurements that motivate it.
+#
+# Every knob is neutral at its default (0, 0, 0, 1), and a fully neutral set
+# installs no hook at all, so "off" is bit-identical to the sampler without it.
+_GAP_EPS = 1e-8
+
+
+def _gap_4d(t):
+    """(flat 4-D view, restore) for a 4-D or 5-D latent, else (None, None)."""
+    if t.dim() == 4:
+        return t, (lambda y: y)
+    if t.dim() == 5:
+        b, c, tt, h, w = t.shape
+        return t.reshape(b * tt, c, h, w), (lambda y: y.reshape(b, c, tt, h, w))
+    return None, None
+
+
+def _gap_lowpass(x, frac):
+    """Low-pass of a 4-D float tensor; band width ``frac`` of the short side.
+
+    The band is expressed as a fraction of the latent's short side so the same
+    value means the same thing at 1024 and at 2048.  ``band -> 0`` is the global
+    per-channel mean, so a very small ``gap_lf`` removes only the tone
+    (exposure, colour) and leaves every structure in the delta.
+    """
+    h, w = x.shape[-2:]
+    band = float(frac) * min(h, w)
+    if band <= 1.0:
+        return x.mean(dim=(-2, -1), keepdim=True).expand_as(x)
+    f = max(2, int(round(band)))
+    small = F.interpolate(x, size=(max(1, h // f), max(1, w // f)), mode="area")
+    return F.interpolate(small, size=(h, w), mode="bilinear", align_corners=False)
+
+
+def _gap_pixel_rms(x):
+    """Per-pixel channel RMS of a 4-D tensor -> [B,1,H,W]."""
+    return x.pow(2).mean(dim=1, keepdim=True).sqrt()
+
+
+def _gap_project(delta, cond, keep):
+    """Keep ``keep`` of the delta's component along cond (per pixel).
+
+    The component parallel to the conditional prediction is the one that scales
+    it up or down, i.e. the contrast/exposure part of the guidance; the
+    orthogonal component carries the prompt-specific structure.  ``keep = 1``
+    leaves the delta untouched, ``0`` removes the parallel part (APG-style).
+    """
+    denom = cond.pow(2).sum(dim=1, keepdim=True).clamp_min(_GAP_EPS)
+    par = (delta * cond).sum(dim=1, keepdim=True) / denom * cond
+    return par * float(keep) + (delta - par)
+
+
+def _gap_cap(delta, uncond, cap):
+    """Per-pixel cap ``|delta| <= cap * |uncond|``, direction preserved."""
+    limit = (float(cap) * _gap_pixel_rms(uncond)).clamp_min(_GAP_EPS)
+    scale = (limit / _gap_pixel_rms(delta).clamp_min(_GAP_EPS)).clamp(max=1.0)
+    return delta * scale, scale
+
+
+def shape_gap(delta, uncond, cond=None, lf=0.0, lf_keep=0.0, cap=0.0, parallel=1.0):
+    """Shape a guidance delta: project -> split -> cap, per pixel.
+
+    ``lf`` is the low-pass band width as a fraction of the latent's short side
+    (0 = off) and ``lf_keep`` the fraction of that band that is kept, so
+    ``lf=0.05, lf_keep=0`` moves everything below 5% of the short side from the
+    conditional prediction to the unconditional one: tone from u, structure from
+    c.  ``cap`` bounds the per-pixel delta to that multiple of the local
+    unconditional magnitude.  ``parallel`` keeps that fraction of the delta's
+    component along c (1 = unchanged).  Returns ``(delta, info)`` with the mean
+    applied cap scale in ``info`` when the cap fired.
+    """
+    d4, restore = _gap_4d(delta)
+    if d4 is None:
+        return delta, {}
+    u4, _ = _gap_4d(uncond) if uncond is not None else (None, None)
+    c4, _ = _gap_4d(cond) if cond is not None else (None, None)
+    dtype = d4.dtype
+    d = d4.float()
+    info = {}
+    if parallel < 1.0 and c4 is not None:
+        d = _gap_project(d, c4.float(), parallel)
+    if lf > 0.0 and lf_keep < 1.0:
+        d = d - (1.0 - float(lf_keep)) * _gap_lowpass(d, lf)
+    if cap > 0.0 and u4 is not None:
+        d, scale = _gap_cap(d, u4.float(), cap)
+        info["cap_scale"] = float(scale.mean())
+    return restore(d.to(dtype)), info
+
+
+def gap_metrics(delta, uncond, cond=None, band=0.05):
+    """Scale-free summary of a guidance delta, for the resolution diagnostic.
+
+    ``rms_ratio`` = ``||delta|| / ||uncond||``, ``lf_share`` = energy fraction of
+    the delta below ``band`` of the short side, ``par_share`` = energy fraction
+    along the conditional prediction.  Each is a mean over the batch, so the
+    numbers are comparable across resolutions and model families.
+    """
+    d4, _ = _gap_4d(delta)
+    if d4 is None:
+        return {}
+    u4, _ = _gap_4d(uncond) if uncond is not None else (None, None)
+    c4, _ = _gap_4d(cond) if cond is not None else (None, None)
+    d = d4.float()
+    dims = (1, 2, 3)
+    energy = d.pow(2).mean(dim=dims).clamp_min(_GAP_EPS)      # [B]
+    out = {}
+    if u4 is not None:
+        u_e = u4.float().pow(2).mean(dim=dims).clamp_min(_GAP_EPS)
+        out["rms_ratio"] = float((energy.sqrt() / u_e.sqrt()).mean())
+    lp = _gap_lowpass(d, band)
+    out["lf_share"] = float((lp.pow(2).mean(dim=dims) / energy).mean())
+    if c4 is not None:
+        c = c4.float()
+        denom = c.pow(2).sum(dim=1, keepdim=True).clamp_min(_GAP_EPS)
+        par = (d * c).sum(dim=1, keepdim=True) / denom.sqrt()
+        out["par_share"] = float((par.pow(2).mean(dim=dims) / energy).mean())
+    return out
+
+
+def gap_summary(series):
+    """Mean/first/last/max of each metric over a ``[(sigma, metrics), ...]``."""
+    out = {}
+    for key in ("rms_ratio", "lf_share", "par_share", "cap_scale"):
+        vals = [m[key] for _, m in series if key in m]
+        if not vals:
+            continue
+        out[key + "_mean"] = float(sum(vals) / len(vals))
+        out[key + "_first"] = float(vals[0])
+        out[key + "_last"] = float(vals[-1])
+        out[key + "_max"] = float(max(vals))
+    return out
+
+
 def _final_extrapolate(x0, values, sigmas, weight):
     """Blend x0 with an extrapolation of x0 to sigma=0 (quadratic if possible)."""
     if weight <= 0.0:
@@ -530,6 +672,12 @@ def sample_omni(
     cfg_map_floor=0.85,
     cfg_map_start=0.5,
     cfg_map_pool=8,
+    # ---- experimental: guidance-gap shaping (all model families, all paths) ----
+    gap_lf=0.0,
+    gap_lf_keep=0.0,
+    gap_cap=0.0,
+    gap_parallel=1.0,
+    gap_stats=False,
 ):
     """Unified exponential-integrator sampler (see module docstring).
 
@@ -566,6 +714,20 @@ def sample_omni(
       trajectory, then scales the guidance delta in later steps so the
       lowest-gap region keeps ``cfg_map_floor`` of it.  It needs cfg > 1 (there
       is no unconditional prediction otherwise) and is disabled with CFG++.
+
+    ``gap_lf``, ``gap_lf_keep``, ``gap_cap`` and ``gap_parallel`` shape the
+    guidance delta (the conditional minus the unconditional prediction) in x0
+    space.  That delta is the same object for both model families and for every
+    guidance path -- plain sampling at cfg > 1, cfg = 1 with the unconditional
+    pass forced, and CFG++ -- so one shaping layer covers all of them.  The
+    defaults (0, 0, 0, 1) are neutral and install no hook, so "off" is
+    bit-identical to the sampler without the feature; see
+    docs/EXPERIMENT_GAP_SHAPING.md for why the knobs exist.
+
+    ``gap_stats`` records the cond/uncond gap per step (``rms_ratio``,
+    ``lf_share``, ``par_share``) in ``LAST_STATS`` without changing the output.
+    At cfg = 1 it forces the unconditional pass (2x batch) because there is no
+    gap to measure otherwise.
     """
     global LAST_STATS
     LAST_STATS = {}
@@ -606,49 +768,95 @@ def sample_omni(
     if abs(lam_span) < 1e-9:
         lam_span = 1.0
 
-    # ---- guidance plumbing: CFG++ capture and/or the per-region CFG map ----
-    # One post-CFG hook serves both.  CFG++ needs the unconditional prediction
-    # for its noise estimate; the map needs both predictions at one mid-run
-    # step and then scales the guidance delta on later steps.  A graph's own
-    # post-CFG hooks are appended after ours, so this neither replaces nor
-    # reorders them (the pd_aos stage-2 build learned that replacing the graph's
-    # hook makes the feature silently inert).
+    # ---- guidance plumbing: CFG++ capture, the CFG map, gap shaping ---------
+    # One post-CFG hook serves all three.  CFG++ needs the unconditional
+    # prediction for its noise estimate; the map needs both predictions at one
+    # mid-run step and then scales the guidance delta on later steps; the gap
+    # shaping rewrites that same delta.  A graph's own post-CFG hooks are
+    # appended after ours, so this neither replaces nor reorders them (the
+    # pd_aos stage-2 build learned that replacing the graph's hook makes the
+    # feature silently inert).
+    gap_lf = min(max(float(gap_lf), 0.0), 0.5)
+    gap_lf_keep = min(max(float(gap_lf_keep), 0.0), 1.0)
+    gap_cap = max(float(gap_cap), 0.0)
+    gap_parallel = min(max(float(gap_parallel), 0.0), 1.0)
+    gap_stats = bool(gap_stats)
+    gap_shape_on = ((gap_lf > 0.0 and gap_lf_keep < 1.0)
+                    or gap_cap > 0.0 or gap_parallel < 1.0)
+    gap_active = gap_shape_on or gap_stats
+    gap_series = []
+    gap_seen = 0
+    gap_skipped = 0
+    gap_cap_sum = 0.0
+    gap_cap_steps = 0
+    gap_reason = None
     uncond_denoised = None
     cfg_state = {"map": None, "cond": None, "uncond": None, "calls": 0}
     # strength 0 makes CFG++ exactly plain sampling (u is blended away), so the
     # hook -- and with it disable_cfg1_optimization, which forces the
     # unconditional pass at cfg=1 -- must not be installed at all.
     cfgpp_active = bool(cfg_pp) and float(cfg_pp_strength) > 0.0
-    if cfgpp_active or cfg_map:
+    if cfgpp_active or cfg_map or gap_active:
         def post_cfg_function(args):
-            nonlocal uncond_denoised
+            nonlocal uncond_denoised, gap_seen, gap_skipped, gap_cap_sum, gap_cap_steps
             u = args.get("uncond_denoised")
+            den = args["denoised"]
             if u is not None:
                 uncond_denoised = u
-            if not cfg_map:
-                return args["denoised"]
+            if not (cfg_map or gap_active):
+                return den
             # At cond_scale == 1 ComfyUI's cfg1 optimisation skips the
             # unconditional pass and hands the hook a ZERO tensor, not None.
-            # Building a map from `cond - 0` would scale the whole prediction;
-            # refuse anything at or below 1.0 instead.
+            # A map or a delta built from it would be meaningless (a zero
+            # "uncond" turns the whole prediction into a delta), so refuse.
+            if u is None or not bool(torch.any(u != 0)):
+                gap_skipped += 1
+                return den
+            gap_seen += 1
             try:
                 scale = float(args.get("cond_scale", 1.0))
             except (TypeError, ValueError):
                 scale = 1.0
-            if scale <= 1.0 + 1e-6:
-                return args["denoised"]
-            cfg_state["calls"] += 1
             c = args.get("cond_denoised")
-            if u is not None:
-                cfg_state["uncond"] = u.detach()
-            if c is not None:
-                cfg_state["cond"] = c.detach()
-            return _apply_cfg_map(args.get("denoised"), u, scale, cfg_state["map"])
+            if cfg_map and scale > 1.0 + 1e-6:
+                cfg_state["calls"] += 1
+                if u is not None:
+                    cfg_state["uncond"] = u.detach()
+                if c is not None:
+                    cfg_state["cond"] = c.detach()
+                den = _apply_cfg_map(den, u, scale, cfg_state["map"])
+            if not gap_active:
+                return den
+            delta = den - u
+            m = None
+            sigma_now = 0.0
+            if gap_stats:
+                try:
+                    sigma_now = float(torch.as_tensor(args.get("sigma", 0.0)).reshape(-1)[0])
+                except (TypeError, ValueError):
+                    sigma_now = 0.0
+                band = gap_lf if gap_lf > 0.0 else 0.05
+                m = gap_metrics(delta, u, c, band)
+            if gap_shape_on:
+                shaped, info = shape_gap(delta, u, c, gap_lf, gap_lf_keep,
+                                         gap_cap, gap_parallel)
+                if "cap_scale" in info:
+                    gap_cap_sum += info["cap_scale"]
+                    gap_cap_steps += 1
+                    if m is not None:
+                        m["cap_scale"] = info["cap_scale"]
+                den = u + shaped
+            if m is not None:
+                gap_series.append((sigma_now, m))
+            return den
 
         model_options = dict(extra_args.get("model_options", {}))
         extra_args["model_options"] = comfy.model_patcher.set_model_options_post_cfg_function(
             model_options, post_cfg_function,
-            disable_cfg1_optimization=bool(cfgpp_active),
+            # gap shaping/stats needs the same forced unconditional pass at
+            # cfg = 1 that CFG++ needs: without it there is no delta to shape or
+            # to measure, and ComfyUI's shortcut hands the hook zeroes.
+            disable_cfg1_optimization=bool(cfgpp_active or gap_active),
         )
 
     # ---- corrector schedule --------------------------------------------
@@ -1034,6 +1242,29 @@ def sample_omni(
         "cfg_map_start": round(float(cfg_map_start), 4),
         "cfg_map_region": int(cfg_map_pool),
     })
+    if gap_active:
+        if gap_seen == 0 and gap_reason is None:
+            gap_reason = "no_uncond" if gap_skipped else "no_cfg_step"
+        LAST_STATS.update({
+            "gap_shape": bool(gap_shape_on),
+            "gap_stats": bool(gap_stats),
+            "gap_lf": round(float(gap_lf), 4),
+            "gap_lf_keep": round(float(gap_lf_keep), 4),
+            "gap_cap": round(float(gap_cap), 4),
+            "gap_parallel": round(float(gap_parallel), 4),
+            "gap_steps": int(len(gap_series)),
+            "gap_seen": int(gap_seen),
+            "gap_skipped": int(gap_skipped),
+            "gap_reason": gap_reason,
+            "gap_cap_steps": int(gap_cap_steps),
+            "gap_cap_mean": (round(gap_cap_sum / gap_cap_steps, 5) if gap_cap_steps else None),
+            # Per-step (sigma, metrics): the resolution diagnostic.  Kept as a
+            # plain list of primitives so a tool can dump it as JSON.
+            "gap_series": [[round(float(s), 5),
+                            {k: round(float(v), 6) for k, v in sorted(m.items())}]
+                           for s, m in gap_series],
+        })
+        LAST_STATS.update({f"gap_{k}": v for k, v in gap_summary(gap_series).items()})
     return x
 
 
@@ -1080,6 +1311,16 @@ DEFAULTS = dict(
     cfg_map_floor=0.85,
     cfg_map_start=0.5,
     cfg_map_pool=8,
+    # Experimental guidance-gap shaping (docs/EXPERIMENT_GAP_SHAPING.md).
+    # Neutral at the defaults: gap_lf 0 / gap_lf_keep 0 / gap_cap 0 / gap_parallel
+    # 1 install no hook, so the sampler is bit-identical to the release.  The
+    # values the experiment proposes are NOT measured optima and are deliberately
+    # not defaults; pick them on the A/B node or with the `omni_hybrid_gap` name.
+    gap_lf=0.0,
+    gap_lf_keep=0.0,
+    gap_cap=0.0,
+    gap_parallel=1.0,
+    gap_stats=False,
 )
 
 # A/B presets exposed by the full sampler node. Each is a delta on DEFAULTS.
@@ -1107,6 +1348,15 @@ AB_PRESETS = {
         "eta": 1.0,
         "px_order": True,
     },
+    # Guidance-gap shaping (experimental; docs/EXPERIMENT_GAP_SHAPING.md).  The
+    # numbers are the experiment's starting points, not measurements: the rows
+    # exist so the four arms can be compared at equal NFE on one node.
+    "N: gap HF (5%)": {"gap_lf": 0.05, "gap_lf_keep": 0.0},
+    "O: gap cap 0.2": {"gap_cap": 0.2},
+    "P: gap HF + cap": {"gap_lf": 0.05, "gap_lf_keep": 0.0, "gap_cap": 0.2},
+    # Stats only: the output is unchanged, but the node prints the per-step
+    # cond/uncond gap (at cfg = 1 this forces the unconditional pass, 2x batch).
+    "Q: gap probe (no shaping)": {"gap_stats": True},
 }
 
 # Registered preset variants (each also selectable through the Sampler node).
@@ -1126,6 +1376,17 @@ VARIANTS = {
         "churn_mode": "gamma",
         "eta": 1.0,
         "px_order": True,
+    },
+    # Experimental (docs/EXPERIMENT_GAP_SHAPING.md): CFG++ with the low-frequency
+    # guidance band moved back to the unconditional prediction and the delta
+    # magnitude capped.  These values are the experiment's starting point, not a
+    # measured optimum; the release names keep their shipped behaviour.
+    "omni_hybrid_gap": {
+        "cfg_pp": True,
+        "cfg_pp_strength": 1.0,
+        "gap_lf": 0.05,
+        "gap_lf_keep": 0.0,
+        "gap_cap": 0.2,
     },
 }
 
