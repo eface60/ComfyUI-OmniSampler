@@ -113,6 +113,11 @@ VARIANTS = {
     "corr1": ("omni_hybrid", {"corrector": "first"}),
     "gamma": ("omni_hybrid", {"s_churn": 2.0, "churn_mode": "gamma"}),
     "gamma_cfgpp": ("omni_hybrid", {"s_churn": 2.0, "churn_mode": "gamma", "cfg_pp": True, "cfg_pp_strength": 1.0}),
+    # Karras churn at its sqrt(2)-1 cap, with and without CFG++: the row that
+    # caught karras churn evaluating a flow model above sigma_max (CHANGELOG,
+    # Unreleased).  Compare against "default" and "nc_cfgpp_s1" at the same NFE.
+    "karras": ("omni_hybrid", {"s_churn": 8.0, "churn_mode": "karras"}),
+    "karras_cfgpp": ("omni_hybrid", {"s_churn": 8.0, "churn_mode": "karras", "cfg_pp": True, "cfg_pp_strength": 1.0}),
     "nc_cfgpp_s1": ("omni_hybrid", {"corrector": "none", "cfg_pp": True, "cfg_pp_strength": 1.0}),
     "pxo": ("omni_hybrid", {"px_order": True}),
     "pxo_0p05": ("omni_hybrid", {"px_order": True, "px_order_tol": 0.05}),

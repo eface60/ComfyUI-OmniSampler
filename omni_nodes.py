@@ -277,8 +277,10 @@ _KNOB_SPECS = {
             "tooltip": (
                 "Re-noise the state before the model call (churn). 0 = off. A "
                 "stochasticity dial, not an accuracy knob; it costs no extra model "
-                "call. The size follows churn_mode. With integrator ab, churn "
-                "forces the exp path (ab is deterministic)."
+                "call. The size follows churn_mode. On a flow model karras churn is "
+                "capped at the schedule's first sigma, so it cannot evaluate above "
+                "sigma = 1 (gamma already skips those steps). With integrator ab, "
+                "churn forces the exp path (ab is deterministic)."
             ),
         },
     ),
@@ -288,7 +290,8 @@ _KNOB_SPECS = {
             "default": DEFAULTS["churn_mode"],
             "tooltip": (
                 "Law used when s_churn > 0: karras = sigma_hat = sigma * (1 + "
-                "gamma), gamma capped at sqrt(2)-1 (same as euler/heun); gamma = "
+                "gamma), gamma capped at sqrt(2)-1 (same as euler/heun), and on a "
+                "flow model sigma_hat capped at the schedule's first sigma; gamma = "
                 "comfyui-ppm's euler_gamma law, sigma_hat = sigma + s_churn * "
                 "sigma / sigma_max, skipped when it would exceed the schedule's "
                 "first sigma. Ignored when s_churn = 0."
@@ -680,12 +683,21 @@ class OmniKSampler:
         if (str(opts.get("integrator", "exp")).lower() == "ab"
                 and omni_core.LAST_STATS.get("integrator") == "exp"):
             effective += " | ab->exp"
+        # Churn is the one knob whose effect depends on the schedule and the model
+        # family (the gamma law can fire on 0 of n steps), so report what actually
+        # ran rather than only the requested value.
+        churn = ""
+        if float(opts.get("s_churn", DEFAULTS["s_churn"])) > 0.0:
+            churn = f" | churn {omni_core.LAST_STATS.get('churn_steps', 0)}/{n} steps"
+            if omni_core.LAST_STATS.get("churn_capped"):
+                churn += f" ({omni_core.LAST_STATS['churn_capped']} capped)"
         summary = (
             f"variant={variant} flow={flow} steps={n} cfg={cfg} scheduler={scheduler} "
             f"evals={omni_core.LAST_STATS.get('calls', evals + extra)}"
             f"/{evals + extra} | " + ", ".join(f"{k}={v}" for k, v in sorted(delta.items()))
             + spatial
             + effective
+            + churn
             + (" | cfg++ batch x2 (cfg=1 uncond pass forced)" if opts.get("cfg_pp") and cfg <= 1.0
                else " | cfg++ free (uncond already evaluated)" if opts.get("cfg_pp") else "")
         )

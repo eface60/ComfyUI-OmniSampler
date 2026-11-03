@@ -286,6 +286,22 @@ The same review found and fixed a real bug: when churn moved the state to
 `sigma_hat`, the step still integrated from the original sigma, so the injected
 noise was never removed. Steps now start at `sigma_hat`, matching k-diffusion.
 
+On a flow model the `karras` law is additionally capped at the schedule's first
+sigma. A flow model is only defined below `sigma = 1` (`alpha = 1 - sigma`), and
+`clamp_sigma` pins the geometry at `1 - 1e-6`, so step 0 of a full denoise used
+to be noised for `sigma_hat = 1.414` but integrated by dividing by 1.0: the state
+came out at 1.30 sigma instead of 0.92, so the injected noise was not removed
+(+41% at the `sqrt(2)-1` cap), in the step that matters most. That step is now a
+bit-exact no-op and the steps below the cap churn normally (MOSS 768², cfg 3.5,
+`s_churn=8` at its `sqrt(2)-1` cap: SSIM 0.288 -> 0.385 at 12 steps and
+0.226 -> 0.511 at 8, and the corrupted image becomes a valid sample). The cap
+also means a partial denoise (`raw[0] < 1`) cannot churn above its starting
+sigma. eps models keep k-diffusion's uncapped behaviour (`sigma_hat` up to 20.7
+on an SDXL schedule). `LAST_STATS` reports `churn_steps` (steps that injected
+noise, either law) and `churn_capped` (steps the flow cap reduced), which is the
+quickest way to confirm a churn setting actually fires on a given schedule; the
+A/B node prints `churn k/n steps` in its config string for the same reason.
+
 ### Author preference preset (v1.5.5)
 
 `omni_hybrid_cfgpp_author_pref` is the author's own everyday setting: CFG++ on
@@ -379,8 +395,10 @@ assertion:
 
 [`tools/test_cross_features.py`](../tools/test_cross_features.py) checks the
 pairs no single-feature test covers: `order` is clamped to 2 on `exp` (and `ab`
-really uses 1-4), `ab` + churn is bit-identical to `exp` + churn, and
-`final_extrapolate` receives the churned evaluation sigmas.
+really uses 1-4), `ab` + churn is bit-identical to `exp` + churn,
+`final_extrapolate` receives the churned evaluation sigmas, and karras churn
+never evaluates a flow model above `sigma_max` (a one-step flow run is a
+bit-exact no-op; eps still evaluates at 20.7).
 
 [`tools/test_node.py`](../tools/test_node.py) checks that the names appear in the
 stock KSampler, KSamplerAdvanced and KSamplerSelect dropdowns, that

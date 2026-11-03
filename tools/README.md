@@ -28,7 +28,7 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 |---|---|
 | [`verify_math.py`](verify_math.py) | every formula in `omni_core`: exact-step trajectory, the ODE identity, SDE marginals, quadrature kernel, convergence order, CFG++ algebra, model-family detection, equality with `dpmpp_2m`'s first step |
 | [`cfgpp_check.py`](cfgpp_check.py) | CFG++ invariants (including the no-op with `px_order` and `corrector_cfgpp` on), the match with ComfyUI's `euler_cfg_pp`, and the effective-guidance table in [docs/TECHNICAL.md](../docs/TECHNICAL.md#cfg-and-what-cfg-means) |
-| [`test_cross_features.py`](test_cross_features.py) | the pairs no single-feature test covers: `order` clamped on `exp`, `ab` + churn falls back to `exp`, and `final_extrapolate` receives the churned evaluation sigmas |
+| [`test_cross_features.py`](test_cross_features.py) | the pairs no single-feature test covers: `order` clamped on `exp`, `ab` + churn falls back to `exp`, `final_extrapolate` receives the churned evaluation sigmas, and karras churn never evaluates a flow model above `sigma_max` |
 | [`test_node.py`](test_node.py) | the names appear in the stock dropdowns, both nodes resolve them, and `KSAMPLER.sample()` lands within 4-6% of the analytic reference on both families |
 | [`test_node_parity.py`](test_node_parity.py) | both nodes expose the same knobs from one definition, every widget has a tooltip naming every combo choice, defaults agree with `omni_core.DEFAULTS`, the widget order stays a prefix (so saved workflows keep their values), and every knob reaches `sample_omni` |
 | [`verify_spatial.py`](verify_spatial.py) | `px_order` / `cfg_map` OFF is bit-identical to the previous release, ON reaches its site, and the map/mask algebra is correct |

@@ -7,6 +7,25 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 
 ### Fixed
 
+* **Karras churn evaluated a flow model above its `sigma` domain.** A flow model
+  is parameterised on `sigma < 1` (`alpha = 1 - sigma`), and step 0 of a full
+  denoise already sits at `sigma_max = 1`, so `sigma_hat = 1.414` was noised for
+  1.414 while `clamp_sigma` pinned the step's geometry at `1 - 1e-6`: the step
+  divided by 1.0 instead of 1.414 and the state came out at 1.30 sigma instead of
+  0.92, i.e. the injected noise was never removed (+41% at the `sqrt(2)-1` cap),
+  in the step that matters most. The evaluation sigma is now capped at the
+  schedule's first sigma, the guard the gamma law already had; when
+  `sigma_s == raw[0]` churn is a bit-exact no-op, and steps below the cap churn
+  normally. MOSS 768², cfg 3.5, `s_churn=8` (the worst case: gamma at its
+  `sqrt(2)-1` cap), SSIM to a 40-step euler reference: 0.226 -> 0.511 at 8 steps
+  and 0.288 -> 0.385 at 12. The control that skips step 0 entirely scored
+  0.399 / 0.415, so the corruption is gone and what is left is ordinary churn
+  noise. eps models are unchanged: no upper domain, so an SDXL schedule still
+  evaluates at `sigma_hat = 20.7` on step 0, like k-diffusion.
+  `LAST_STATS` gained `churn_steps` (steps that injected noise, both laws) and
+  `churn_capped` (steps the flow cap reduced), and the A/B node prints
+  `churn k/n steps` in its config string, so a run can say whether its churn
+  fired at all.
 * **`px_order` × CFG++ broke the CFG++ no-op invariant.** The per-pixel gate
   masked the x0 extrapolation but not the unconditional one, so every pixel the
   gate refused leaked an unmasked `kappa*(du)` term into the guidance direction
@@ -41,8 +60,10 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 * `M: author pref (cfgpp+churn+eta+px)` A/B row: the registered
   `omni_hybrid_cfgpp_author_pref` setting as one row, so the combination can be
   compared with its parts at equal NFE.
-* `tools/test_cross_features.py`: the order clamp, the `ab` + churn fallback and
-  the endpoint-fit sigmas, each with a negative control.
+* `tools/test_cross_features.py`: the order clamp, the `ab` + churn fallback, the
+  endpoint-fit sigmas and the flow churn cap, each with a negative control (the
+  churn case records every evaluation sigma, asserts a one-step flow run is a
+  bit-exact no-op, and checks that eps still evaluates above `sigma_max`).
 
 ### Changed
 

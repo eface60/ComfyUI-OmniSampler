@@ -577,6 +577,8 @@ def sample_omni(
         return x
     n_calls = 0      # real model evaluations, for the node's diagnostics
     n_skipped = 0
+    n_churn = 0      # steps that really injected churn noise
+    n_churn_capped = 0  # steps where the flow-domain cap reduced sigma_hat
     px_order = bool(px_order)
     px_order_tol = max(1e-4, float(px_order_tol))
     cfg_map = bool(cfg_map)
@@ -732,7 +734,8 @@ def sample_omni(
             cfg_map_steps += 1
 
         # ---- churn ----
-        # "karras": relative gamma (Karras eq. 8), capped at sqrt(2)-1
+        # "karras": relative gamma (Karras eq. 8), capped at sqrt(2)-1 and, on a
+        #           flow model, at the schedule's first sigma (see below)
         # "gamma":  comfyui-ppm's euler_gamma law - an absolute offset
         #           proportional to sigma/sigma_max, skipped when it would
         #           exceed sigma_max (which is what ppm does at the first step)
@@ -747,13 +750,29 @@ def sample_omni(
                     x = x - torch.randn_like(x) * (
                         s_noise * math.sqrt(max(0.0, sigma_eval ** 2 - sigma_s ** 2))
                     )
+                    n_churn += 1
             else:
                 gamma = min(s_churn / max(n_steps, 1), 2 ** 0.5 - 1.0)
                 sigma_eval = sigma_s * (gamma + 1.0)
-                if gamma > 0.0:
+                if flow and sigma_eval > raw[0]:
+                    # A flow model is parameterised on sigma < 1 (alpha = 1 - sigma)
+                    # and clamp_sigma() pins the geometry at 1 - _SIGMA_FLOOR.  At
+                    # step 0 of a full denoise sigma_s is already sigma_max = 1, so
+                    # sigma_hat = 1.414 used to be noised at 1.414 while the step
+                    # divided by 1.0: the state came out at 1.30 sigma instead of
+                    # 0.92, i.e. the injected noise was never removed (+41% at
+                    # gamma = sqrt(2)-1).  Cap the evaluation at the
+                    # schedule's first sigma, which is what the gamma law does by
+                    # skipping the step; when sigma_s == raw[0] churn is then a
+                    # bit-exact no-op, and the noise drawn below stays consistent
+                    # with the sigma the step integrates from.
+                    sigma_eval = raw[0]
+                    n_churn_capped += 1
+                if gamma > 0.0 and sigma_eval > sigma_s:
                     x = x + torch.randn_like(x) * (
                         s_noise * math.sqrt(max(0.0, sigma_eval ** 2 - sigma_s ** 2))
                     )
+                    n_churn += 1
 
         # churn moved the state to sigma_eval, so the step must start there
         # (comfy/k-diffusion use dt = sigma_next - sigma_hat for the same reason)
@@ -995,6 +1014,8 @@ def sample_omni(
         "calls": int(n_calls),
         "steps": int(n_steps),
         "skipped": int(n_skipped),
+        "churn_steps": int(n_churn),
+        "churn_capped": int(n_churn_capped),
         "corrector_steps": int(n_corr),
         "corrector_cfgpp": bool(corrector_cfgpp),
         "order_requested": int(order),

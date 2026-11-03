@@ -7,6 +7,10 @@
    bit-identically for the same RNG state, and say so in LAST_STATS.
 3. **final_extrapolate x churn.**  The endpoint fit must be given the sigmas the
    model actually saw (`sigma_hat`), not the un-churned schedule entries.
+4. **churn x the flow sigma domain.**  A flow model is only defined on sigma < 1,
+   so karras churn at step 0 must not evaluate above the schedule's first sigma;
+   at `sigma == sigma_max` it is a bit-exact no-op.  eps models keep k-diffusion's
+   uncapped behaviour.
 
 Run with ComfyUI's venv python (COMFY_DIR overrides the default path):
 
@@ -54,6 +58,18 @@ def run(model, sig, x, **kw):
     return omni_core.sample_omni(
         model, x.clone(), sig.clone(), extra_args={"seed": 0}, disable=True, **kw
     )
+
+
+class SigmaSpy(ToyModel):
+    """ToyModel that records every sigma the sampler evaluates it at."""
+
+    def __init__(self, prior, flow=False):
+        super().__init__(prior, flow=flow)
+        self.seen = []
+
+    def __call__(self, x, sigma, **kwargs):
+        self.seen.append(float(torch.as_tensor(sigma).reshape(-1)[0]))
+        return super().__call__(x, sigma, **kwargs)
 
 
 def test_order_clamp():
@@ -153,11 +169,68 @@ def test_final_extrapolate_sigmas():
           f"got={got0}")
 
 
+def test_churn_flow_domain():
+    print("\n=== 5. karras churn stays inside the flow model's sigma domain ===")
+    prior = MixturePrior(dim=2, seed=0)
+    model = SigmaSpy(prior, flow=True)
+    sig = torch.tensor([float(s) for s in karras_sigmas(12, model.sigma_min, model.sigma_max)])
+    x, _ = make_init(prior, 64, float(sig[0]), True, torch.Generator().manual_seed(11))
+    n = len(sig) - 1
+    gamma = min(8.0 / n, 2 ** 0.5 - 1.0)
+    expected_capped = sum(1 for s in sig[:-1] if float(s) * (1 + gamma) > float(sig[0]))
+
+    torch.manual_seed(7)
+    run(model, sig, x, s_churn=8.0, churn_mode="karras", corrector="none")
+    st = dict(omni_core.LAST_STATS)
+    check("no evaluation sigma exceeds sigma_max",
+          max(model.seen) <= float(sig[0]) + 1e-9,
+          f"max={max(model.seen):.6f} sigma_max={float(sig[0]):.6f}")
+    check("only the over-domain steps are capped", st.get("churn_capped") == expected_capped,
+          f"churn_capped={st.get('churn_capped')} expected={expected_capped}")
+    check("every step below the cap still churns", st.get("churn_steps") == n - 1,
+          f"churn_steps={st.get('churn_steps')} of {n}")
+
+    # A one-step flow run evaluates once, at sigma == sigma_max, so churn there has
+    # to be a bit-exact no-op: same sigma, no draw, same output.
+    prior1 = MixturePrior(dim=2, seed=0)
+    m1 = SigmaSpy(prior1, flow=True)
+    sig1 = torch.tensor([float(s) for s in karras_sigmas(1, m1.sigma_min, m1.sigma_max)])
+    x1, _ = make_init(prior1, 64, float(sig1[0]), True, torch.Generator().manual_seed(11))
+    torch.manual_seed(7)
+    a = run(m1, sig1, x1, s_churn=8.0, churn_mode="karras", corrector="none")
+    st1 = dict(omni_core.LAST_STATS)
+    torch.manual_seed(7)
+    b = run(m1, sig1, x1, s_churn=0.0, corrector="none")
+    check("churn at sigma_max is a bit-exact no-op", torch.equal(a, b))
+    check("it takes no churn draw", st1.get("churn_steps") == 0,
+          f"churn_steps={st1.get('churn_steps')}")
+    check("and reports the cap", st1.get("churn_capped") == 1,
+          f"churn_capped={st1.get('churn_capped')}")
+
+    # Negative control: eps has no upper sigma domain, so karras churn must keep
+    # k-diffusion's behaviour and evaluate above the schedule's first sigma.
+    prior_e = MixturePrior(dim=2, seed=0)
+    me = SigmaSpy(prior_e, flow=False)
+    sige = torch.tensor([float(s) for s in karras_sigmas(12, me.sigma_min, me.sigma_max)])
+    xe, _ = make_init(prior_e, 64, float(sige[0]), False, torch.Generator().manual_seed(11))
+    torch.manual_seed(7)
+    run(me, sige, xe, s_churn=8.0, churn_mode="karras", corrector="none")
+    ste = dict(omni_core.LAST_STATS)
+    check("eps: every step injects churn", ste.get("churn_steps") == len(sige) - 1,
+          f"churn_steps={ste.get('churn_steps')}")
+    check("eps: nothing is capped", ste.get("churn_capped") == 0,
+          f"churn_capped={ste.get('churn_capped')}")
+    check("eps: the model is evaluated above sigma_max",
+          max(me.seen) > float(sige[0]) + 1e-6,
+          f"max={max(me.seen):.4f} sigma_max={float(sige[0]):.4f}")
+
+
 def main():
     test_order_clamp()
     test_ab_uses_order()
     test_ab_churn_falls_back()
     test_final_extrapolate_sigmas()
+    test_churn_flow_domain()
     print()
     if FAILS:
         print(f"{len(FAILS)} CHECK(S) FAILED: {FAILS}")
