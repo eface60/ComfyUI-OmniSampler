@@ -550,13 +550,24 @@ def shape_gap(delta, uncond, cond=None, lf=0.0, lf_keep=0.0, cap=0.0, parallel=1
     return restore(d.to(dtype)), info
 
 
+# Low-pass band ladder used by gap_metrics: fractions of the latent's short
+# side.  The profile (how much of the delta's energy sits below each band) is
+# the measurement that decides whether a fixed band is meaningful across models.
+_GAP_LF_BANDS = (0.01, 0.02, 0.05, 0.10, 0.20)
+
+
 def gap_metrics(delta, uncond, cond=None, band=0.05):
     """Scale-free summary of a guidance delta, for the resolution diagnostic.
 
-    ``rms_ratio`` = ``||delta|| / ||uncond||``, ``lf_share`` = energy fraction of
-    the delta below ``band`` of the short side, ``par_share`` = energy fraction
-    along the conditional prediction.  Each is a mean over the batch, so the
-    numbers are comparable across resolutions and model families.
+    ``rms_ratio`` = ``||delta|| / ||uncond||`` (magnitude; note the post-CFG
+    delta is ``cfg * (cond - uncond)``, so divide by cfg to compare across cfg
+    values), ``dc_ratio`` = the delta's per-channel spatial mean over the mean
+    ``|uncond|`` (the tone/exposure part), ``p99_ratio`` = the 99th percentile of
+    the per-pixel ``|delta| / |uncond|`` (the tail a cap would bite), ``lf_share``
+    = energy fraction below ``band``, ``par_share`` = energy fraction along the
+    conditional prediction, and ``lf_share_XX`` the same for every band in
+    ``_GAP_LF_BANDS``.  All are means over the batch, so they are comparable
+    across resolutions and model families.
     """
     d4, _ = _gap_4d(delta)
     if d4 is None:
@@ -565,18 +576,57 @@ def gap_metrics(delta, uncond, cond=None, band=0.05):
     c4, _ = _gap_4d(cond) if cond is not None else (None, None)
     d = d4.float()
     dims = (1, 2, 3)
-    energy = d.pow(2).mean(dim=dims).clamp_min(_GAP_EPS)      # [B]
+    energy = d.pow(2).mean(dim=dims).clamp_min(_GAP_EPS)      # [B], for RMS
+    # Energy fractions use SUMS: the projected/`lp` tensors do not have the same
+    # element count as `d` (a projection keeps 1 channel), so a ratio of means
+    # would be off by the channel count.
+    d_energy = d.pow(2).sum(dim=dims).clamp_min(_GAP_EPS)     # [B]
     out = {}
     if u4 is not None:
-        u_e = u4.float().pow(2).mean(dim=dims).clamp_min(_GAP_EPS)
+        u = u4.float()
+        u_e = u.pow(2).mean(dim=dims).clamp_min(_GAP_EPS)
         out["rms_ratio"] = float((energy.sqrt() / u_e.sqrt()).mean())
-    lp = _gap_lowpass(d, band)
-    out["lf_share"] = float((lp.pow(2).mean(dim=dims) / energy).mean())
+        # Absolute latent-space magnitudes: a shrinking *ratio* does not imply a
+        # shrinking impulse if the prediction itself grows.
+        out["u_rms"] = float(u_e.sqrt().mean())
+        out["d_rms"] = float(energy.sqrt().mean())
+        d_dc = d.mean(dim=(-2, -1)).abs().mean(dim=1)                  # [B]
+        u_abs = u.abs().mean(dim=(-2, -1)).mean(dim=1).clamp_min(_GAP_EPS)
+        out["dc_ratio"] = float((d_dc / u_abs).mean())
+        ratio = _gap_pixel_rms(d) / _gap_pixel_rms(u).clamp_min(_GAP_EPS)
+        if ratio.numel() > 0:
+            q = torch.quantile(ratio.reshape(ratio.shape[0], -1), 0.99, dim=1)
+            out["p99_ratio"] = float(q.mean())
+    for b in _GAP_LF_BANDS:
+        lp = _gap_lowpass(d, b)
+        out[f"lf_share_{int(round(b * 100)):02d}"] = float(
+            (lp.pow(2).sum(dim=dims) / d_energy).mean())
+    if band not in _GAP_LF_BANDS:
+        lp = _gap_lowpass(d, band)
+        out["lf_share_auto"] = float((lp.pow(2).sum(dim=dims) / d_energy).mean())
+    key = f"lf_share_{int(round(band * 100)):02d}"
+    out["lf_share"] = out.get(key, out.get("lf_share_auto", 0.0))
     if c4 is not None:
         c = c4.float()
         denom = c.pow(2).sum(dim=1, keepdim=True).clamp_min(_GAP_EPS)
         par = (d * c).sum(dim=1, keepdim=True) / denom.sqrt()
-        out["par_share"] = float((par.pow(2).mean(dim=dims) / energy).mean())
+        out["par_share"] = float((par.pow(2).sum(dim=dims) / d_energy).mean())
+    return out
+
+
+def gap_summary(series):
+    """Mean/first/last/max of every metric over a ``[(sigma, metrics), ...]``."""
+    keys = sorted({k for _, m in series for k, v in m.items()
+                   if isinstance(v, (int, float))})
+    out = {}
+    for key in keys:
+        vals = [m[key] for _, m in series if key in m]
+        if not vals:
+            continue
+        out[key + "_mean"] = float(sum(vals) / len(vals))
+        out[key + "_first"] = float(vals[0])
+        out[key + "_last"] = float(vals[-1])
+        out[key + "_max"] = float(max(vals))
     return out
 
 

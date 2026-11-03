@@ -35,6 +35,20 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   demonstration through ComfyUI's real post-CFG hook) and
   `tools/gap_shape_bench.py` (the real-model matrix at a chosen resolution).
   The case and what would falsify it: [docs/EXPERIMENT_GAP_SHAPING.md](docs/EXPERIMENT_GAP_SHAPING.md).
+* **Measurement: the guidance gap does not grow with resolution.** A sweep of
+  Krea2 turbo (cfg 1), MOSS base (cfg 3.5) and Anima base 1.0 (cfg 4) over
+  0.26-6.03 MP, 12 steps, one prompt/seed, `gap_stats` only (no image change):
+  mean `||delta||/||uncond||` follows area^-0.19 / area^-0.34 / area^-0.07, so it
+  *falls* with size; the absolute latent RMS of the delta drops 0.319 -> 0.239
+  (Krea2, 1 MP -> 6 MP) while the uncond magnitude stays flat; and after the
+  `alpha_t` weighting the 6 MP run receives 31% less effective guidance than the
+  1.4 MP one. The delta's spectrum is the universal part (2/5/10/20% bands,
+  coefficient of variation 0.10-0.12 across the three families); the magnitude is
+  not (4.7x spread at 1 MP), so no absolute automatic threshold exists. This
+  falsifies the resolution hypothesis behind the gap shaping: the 6 MP burn has
+  to come from outside the guidance delta (decode, attention at ~94k tokens, or
+  the model's own OOD content). `tools/gap_sweep.py` + `tools/gap_report.py`
+  reproduce the tables.
 
 ### Fixed
 

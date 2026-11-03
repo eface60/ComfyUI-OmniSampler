@@ -49,7 +49,10 @@ sys.path.insert(0, PARENT)
 sys.path.insert(0, REPO)
 
 import omni_sampler  # noqa: E402,F401
-import omni_core  # noqa: E402
+# The package module, not the top-level one: the registered sampler closes over
+# omni_sampler.omni_core, and a bare `import omni_core` would load a second
+# module object whose LAST_STATS stays empty.
+from omni_sampler import omni_core  # noqa: E402
 import comfy.sample  # noqa: E402
 import comfy.samplers  # noqa: E402
 from omni_sampler.tools.modern_bench import FAMILIES, NEG, PROMPT, load, to_hwc  # noqa: E402
@@ -166,7 +169,15 @@ def main():
                 model_options=model.model_options, latent_image=latent,
                 disable_pbar=True, seed=args.seed)
             st = dict(omni_core.LAST_STATS)
-            img = vae.decode(s.to(model.load_device))
+            # A 6 MP full decode can exhaust a 24 GB card once the model is
+            # resident; fall back to the tiled decoder the nodes use.
+            try:
+                img = vae.decode(s.to(model.load_device))
+            except Exception as exc:  # noqa: BLE001
+                print(f"    (full decode failed: {type(exc).__name__}; tiling)", flush=True)
+                torch.cuda.empty_cache()
+                img = vae.decode_tiled(s.to(model.load_device), tile_x=512, tile_y=512,
+                                       overlap=64)
         dt = time.time() - t0
         t = to_hwc(img).float()
         label = f"{args.family}_{arm}_{w}x{h}_{args.steps}"

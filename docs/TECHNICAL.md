@@ -344,11 +344,20 @@ that.
 
 ## Guidance-gap shaping (experiment branch, OFF by default)
 
-**Not a release feature and not measured on a real model.** The branch
-`experiments/gap-shaping` exists to test one observation: Krea2 turbo at
-2048×2944 (12 steps, cfg 1) is artifact-free but burns with `cfg_pp_strength`
-1.0, artifacts with 0.5, and fine at 1024×1408. The full case, the hypothesis
-and the matrix are in
+**Not a release feature, and the hypothesis behind it was tested and not
+supported.** The branch `experiments/gap-shaping` started from one observation:
+Krea2 turbo at 2048×2944 (12 steps, cfg 1) is artifact-free but burns with
+`cfg_pp_strength` 1.0, artifacts with 0.5, and is fine at 1024×1408. The guess
+was that the guidance gap grows at out-of-distribution sizes. A sweep of three
+families (Krea2 turbo, MOSS base, Anima base 1.0, 0.26-6.0 MP, cfg 1/3.5/4)
+measured the opposite: the gap *shrinks* with area (area^-0.19 / -0.34 / -0.07),
+its absolute latent RMS drops from 0.319 to 0.239 (Krea2, 1 MP -> 6 MP), and
+after the `alpha_t` weighting the 6 MP run receives 31% *less* effective
+guidance than the 1.4 MP one. What is universal is the spectrum (the delta's
+low-frequency share at 2/5/10/20% bands has a coefficient of variation of
+0.10-0.12 across the three) and the front-loaded shape; what is not is the
+magnitude (4.7x spread at 1 MP), so no absolute automatic threshold exists. The
+tables and the reproduction commands are in
 [EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md).
 
 The quantity being shaped is the guidance delta, `denoised - uncond`, in x0
@@ -402,10 +411,11 @@ matrix.
   real-model accuracy comparison has been run: the corrector itself is still an
   open question (see [CORRECTIONS.md](CORRECTIONS.md)).
 * The gap-shaping knobs are experimental and neutral by default. They are
-  invariants-verified and demonstrated on a synthetic tone/structure pair, but
-  the real-model matrix in [EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md)
-  has not been run yet, so no value of `gap_lf` / `gap_cap` / `gap_parallel` is a
-  measured optimum.
+  invariants-verified and demonstrated on a synthetic tone/structure pair, and
+  the cross-model sweep in [EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md)
+  did run: it found the guidance gap *shrinking* with resolution, so the shaping
+  is not a resolution fix, and no value of `gap_lf` / `gap_cap` / `gap_parallel`
+  is a measured optimum.
 * The only mode-free real-model instrument is `tools/local_metric.py`; its
   first-interval reference is only resolved when the substep count scales with
   the interval's `lambda` gap (the default does), and it refuses to write
