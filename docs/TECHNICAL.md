@@ -82,6 +82,7 @@ safe-fallback values, because their measurement is a caution, not a win; see the
 | `gap_cap` | 0.0 | per-pixel cap on the delta, as a multiple of the local unconditional magnitude (0 = off) |
 | `gap_parallel` | 1.0 | fraction of the delta's component along the conditional prediction kept (1 = unchanged, 0 = projected away) |
 | `gap_parallel_local` | 0.0 | experimental: remove up to this fraction of that contrast component, but only in the top tenth of the frame's per-pixel contrast push (PD-AOS-style self-normalised gate, no absolute threshold) |
+| `gap_local_start` | 0.0 | step fraction (0 = first step, 1 = last) after which the local relief ramps in; early steps are left alone |
 | `gap_stats` | false | record the per-step cond/uncond gap in `LAST_STATS` without changing the output; at cfg = 1 this forces the unconditional pass (2x batch) |
 
 The same A/B preset rows are available on both nodes through `variant`
@@ -392,6 +393,17 @@ says is impossible. PD-AOS's own implementation was audited and left out: its
 per-pixel modulation measured 0.25-0.45% of one step term and its own A/B could
 not resolve it ([PD_AOS_AUDIT.md](PD_AOS_AUDIT.md)). The gate here is a
 different signal and is **not measured on a real model yet**.
+
+`gap_local_start` exists because the first 6 MP test of the local gate worked
+but left early "colour blobs that resolved themselves later": a per-step gate
+recomputes its decile every step, and early in a run that decile is not the
+highlight tail -- it is the composition, so relieving contrast there fights the
+structure the model is still laying down. The ramp keeps every step before
+`gap_local_start` (a fraction of the *steps*, not of logSNR: the extreme sigmas
+eat most of the lambda span, so 30% of logSNR is step 2 of 12) bit-identical to
+the unshaped path, and fades the relief in after it. The author's Krea2 6 MP run
+with the gate on every step had "the ending burn nearly completely gone" and the
+early glitch; the ramp is the fix for the glitch.
 
 Defaults are neutral and install no hook, so OFF is bit-identical. The knobs are
 also state-free: they depend only on the current prediction, so the

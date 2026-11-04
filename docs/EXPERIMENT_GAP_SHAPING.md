@@ -158,17 +158,38 @@ and it covers plain `cfg > 1`, the forced-unconditional path at `cfg = 1`, and
 CFG++ (CFG++ then uses the shaped delta as its signal and the raw uncond as its
 noise). No extra model call.
 
+## First real result (Krea2, 6 MP, author's run)
+
+The local gate at `0.6` on every step, CFG++ 1.0, cfg 1, 2048x2944:
+
+* **the ending burn is nearly completely gone** (the thing this whole branch was
+  after), detail kept;
+* but the structure glitches early -- "colour blobs that had to be resolved
+  creatively" -- and the model recovers them over the rest of the run.
+
+That is the expected failure of a *per-step* gate. It recomputes its decile
+every step, and early in a trajectory the top decile is not the clipping tail:
+it is composition-sized regions, so relieving their contrast fights the
+structure being laid down, and the order-2 history carries the shape forward.
+Late in the run the same decile *is* the highlight tail, which is what the
+relief is for.
+
+`gap_local_start` fixes that by keeping the early steps bit-identical: relief
+ramps in only after a fraction of the **steps** (not of logSNR -- the extreme
+sigmas eat most of the lambda span, so 30% of logSNR is step 2 of 12). The A/B
+row is `S: gap local APG late (0.6 from 30%)`; `0.25-0.40` is the range.
+
+Next: run `S` at 6 MP. If the early blobs are gone and the end burn stays
+suppressed, the ramp becomes part of the recommendation, and the remaining
+question is only how much relief the mid-trajectory needs.
+
 ## What is still worth testing
 
-1. **`gap_parallel_local` (local APG) at 6 MP.** The author's 6 MP run with
-   `gap_parallel 0` (the whole contrast component removed) fixed the burn, kept
-   the detail and washed the frame grey -- so the contrast lives in that
-   component and a binary removal is too much. The local version removes it only
-   in the top decile of each step's own per-pixel contrast push, which is the
-   one idea worth borrowing from PD-AOS's local fields (a self-normalised
-   per-pixel quantity, no absolute threshold). `tools/gap_shape_bench.py` has the
-   `local` arm; `R: gap local APG (0.6)` is the A/B row. This is the live
-   candidate, and everything else in this branch is closed.
+1. **`gap_parallel_local` (local APG) at 6 MP.** First run: the end burn is
+   nearly gone and the detail is kept, but the early structure glitches; see
+   the result section above. The next render is the late-only variant
+   (`S: gap local APG late (0.6 from 30%)`, or `gap_local_start` 0.25-0.40),
+   which leaves the first steps untouched. This is the live candidate.
 2. **Plain at 6 MP** (no guidance at all). The author reports it is "decent" but
    still on the over-burned side; if it burns too, the model itself is
    over-contrast at that size and the local gate is the only thing that can

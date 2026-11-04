@@ -84,7 +84,8 @@ _KNOB_SPECS = {
                 "N: gap HF (5%) = gap_lf 0.05; O: gap cap 0.2 = gap_cap 0.2; "
                 "P: gap HF + cap = both; Q: gap probe (no shaping) = gap_stats on "
                 "(experimental guidance-gap shaping, docs/EXPERIMENT_GAP_SHAPING.md); "
-                "R: gap local APG (0.6) = cfg_pp on, strength 1.0, gap_parallel_local 0.6. "
+                "R: gap local APG (0.6) = cfg_pp on, strength 1.0, gap_parallel_local 0.6; "
+                "S: gap local APG late (0.6 from 30%) = as R, with gap_local_start 0.3. "
                 "A preset overrides only the knobs it names; custom (use knobs) "
                 "uses every knob as set."
             ),
@@ -540,6 +541,25 @@ _KNOB_SPECS = {
             ),
         },
     ),
+    "gap_local_start": (
+        "FLOAT",
+        {
+            "default": DEFAULTS["gap_local_start"],
+            "min": 0.0,
+            "max": 0.95,
+            "step": 0.05,
+            "round": False,
+            "tooltip": (
+                "Only used when gap_parallel_local > 0. Fraction of the *steps* "
+                "(0 = first, 1 = last) after which the local relief ramps in "
+                "smoothly. Early in a run the hot decile is the composition, not "
+                "the clipping highlights, and relieving contrast there produces "
+                "colour blobs that later steps have to resolve -- 0.25-0.40 "
+                "keeps the early structure intact and still removes the end "
+                "burn. 0 applies the relief at every step."
+            ),
+        },
+    ),
     "gap_stats": (
         "BOOLEAN",
         {
@@ -631,7 +651,7 @@ _SELECT_ORDER = _V151_SELECT_ORDER + [
     # Experimental guidance-gap shaping (docs/EXPERIMENT_GAP_SHAPING.md).
     # Appended last so every saved workflow keeps its positional values.
     "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_parallel_local",
-    "gap_stats",
+    "gap_local_start", "gap_stats",
 ]
 
 _V151_KSAMPLER_ORDER = [
@@ -643,7 +663,7 @@ _V151_KSAMPLER_ORDER = [
 _KSAMPLER_ORDER = _V151_KSAMPLER_ORDER + [
     "eta_window", "corrector_cfgpp",
     "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_parallel_local",
-    "gap_stats",
+    "gap_local_start", "gap_stats",
 ]
 
 

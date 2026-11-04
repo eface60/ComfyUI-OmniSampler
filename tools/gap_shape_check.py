@@ -322,6 +322,27 @@ def test_local_gate():
     baseline, _ = omni_core.shape_gap(hot, uncond, cond, parallel=0.5)
     check("local=0 is bit-identical to the global projection", torch.equal(same, baseline))
 
+    print("\n=== 7. the late-only ramp ===")
+    check("relief is 0 before the start", omni_core._gap_local_gain(0.1, 0.4) == 0.0)
+    check("relief is 1 at the end of the trajectory",
+          abs(omni_core._gap_local_gain(1.0, 0.4) - 1.0) < 1e-9)
+    check("start 0 keeps the old behaviour",
+          omni_core._gap_local_gain(0.05, 0.0) == 1.0)
+
+    tone, tex = patterns()
+    delta = tone + 0.6 * tex
+    sig, x = setup(GapToy(cfg=1.0, delta=delta))
+    run(GapToy(cfg=1.0, delta=delta), sig, x, corrector="none",
+        cfg_pp=True, cfg_pp_strength=1.0, gap_parallel_local=0.6)
+    all_steps = last_stats().get("gap_local_steps", 0)
+    run(GapToy(cfg=1.0, delta=delta), sig, x, corrector="none",
+        cfg_pp=True, cfg_pp_strength=1.0, gap_parallel_local=0.6, gap_local_start=0.5)
+    late_steps = last_stats().get("gap_local_steps", 0)
+    check("without a start the relief runs every step", all_steps == N,
+          f"{all_steps} of {N}")
+    check("with a start it skips the early steps", 0 < late_steps < all_steps,
+          f"{late_steps} of {all_steps}")
+
 
 def main():
     test_neutral_identity()

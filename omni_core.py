@@ -521,6 +521,25 @@ def _gap_project(delta, cond, keep):
     return par * keep + (delta - par)
 
 
+def _gap_local_gain(frac, start):
+    """Relief ramp: 0 before ``start`` of the trajectory, 1 after it.
+
+    The local gate is recomputed every step from that step's own push
+    distribution.  Early in a run the top decile is not highlights, it is
+    composition-sized regions -- relieving contrast there fights the structure
+    the model is still laying down, which is exactly the "colour blobs that get
+    resolved later" failure.  Late in a run the same top decile is the clipping
+    tail, which is what the relief is for.  ``start`` is a trajectory fraction
+    (logSNR progress), so it is schedule- and resolution-independent.
+    """
+    start = float(start)
+    if start <= 0.0:
+        return 1.0
+    t = (float(frac) - start) / max(1.0 - start, 1e-6)
+    t = min(max(t, 0.0), 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
 def _gap_local_gate(delta, cond, softness=_GAP_LOCAL_SOFT, tail=_GAP_LOCAL_TAIL):
     """Per-pixel gate that fires where the contrast push is locally excessive.
 
@@ -777,6 +796,7 @@ def sample_omni(
     gap_cap=0.0,
     gap_parallel=1.0,
     gap_parallel_local=0.0,
+    gap_local_start=0.0,
     gap_stats=False,
 ):
     """Unified exponential-integrator sampler (see module docstring).
@@ -885,11 +905,15 @@ def sample_omni(
     gap_cap = max(float(gap_cap), 0.0)
     gap_parallel = min(max(float(gap_parallel), 0.0), 1.0)
     gap_parallel_local = min(max(float(gap_parallel_local), 0.0), 1.0)
+    gap_local_start = min(max(float(gap_local_start), 0.0), 0.95)
     gap_stats = bool(gap_stats)
     gap_shape_on = ((gap_lf > 0.0 and gap_lf_keep < 1.0)
                     or gap_cap > 0.0 or gap_parallel < 1.0
                     or gap_parallel_local > 0.0)
     gap_active = gap_shape_on or gap_stats
+    # Step bookkeeping for the late-only local relief: the hook needs to know
+    # which step it is on, and the loop is the only place that knows.
+    gap_step = {"i": 0, "n": int(n_steps)}
     gap_series = []
     gap_seen = 0
     gap_skipped = 0
@@ -949,8 +973,15 @@ def sample_omni(
                 band = gap_lf if gap_lf > 0.0 else 0.05
                 m = gap_metrics(delta, u, c, band)
             if gap_shape_on:
+                local_eff = gap_parallel_local
+                if local_eff > 0.0 and gap_local_start > 0.0:
+                    # Step fraction, not logSNR progress: the extreme sigmas eat
+                    # most of the lambda span, so "30% of logSNR" is step 2 of 12
+                    # -- not what "early in the generation" means.
+                    frac_now = gap_step["i"] / max(gap_step["n"] - 1, 1)
+                    local_eff *= _gap_local_gain(frac_now, gap_local_start)
                 shaped, info = shape_gap(delta, u, c, gap_lf, gap_lf_keep,
-                                         gap_cap, gap_parallel, gap_parallel_local)
+                                         gap_cap, gap_parallel, local_eff)
                 if "cap_scale" in info:
                     gap_cap_sum += info["cap_scale"]
                     gap_cap_steps += 1
@@ -1057,6 +1088,7 @@ def sample_omni(
         sigma_s = raw[i]
         sigma_t = raw[i + 1]
         lam_s = lams[i]
+        gap_step["i"] = i
         if cfg_map and cfg_state["map"] is not None:
             cfg_map_steps += 1
 
@@ -1372,6 +1404,7 @@ def sample_omni(
             "gap_cap": round(float(gap_cap), 4),
             "gap_parallel": round(float(gap_parallel), 4),
             "gap_parallel_local": round(float(gap_parallel_local), 4),
+            "gap_local_start": round(float(gap_local_start), 4),
             "gap_local_steps": int(gap_local_steps),
             "gap_local_mean": (round(gap_local_sum / gap_local_steps, 5)
                                if gap_local_steps else None),
@@ -1447,6 +1480,7 @@ DEFAULTS = dict(
     gap_cap=0.0,
     gap_parallel=1.0,
     gap_parallel_local=0.0,
+    gap_local_start=0.0,
     gap_stats=False,
 )
 
@@ -1487,6 +1521,14 @@ AB_PRESETS = {
         "cfg_pp": True,
         "cfg_pp_strength": 1.0,
         "gap_parallel_local": 0.6,
+    },
+    # The late-only version: relief starts at 30% of the trajectory, where the
+    # hot decile is the clipping tail rather than the composition.
+    "S: gap local APG late (0.6 from 30%)": {
+        "cfg_pp": True,
+        "cfg_pp_strength": 1.0,
+        "gap_parallel_local": 0.6,
+        "gap_local_start": 0.3,
     },
     # Stats only: the output is unchanged, but the node prints the per-step
     # cond/uncond gap (at cfg = 1 this forces the unconditional pass, 2x batch).
