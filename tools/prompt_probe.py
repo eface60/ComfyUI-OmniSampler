@@ -55,6 +55,7 @@ PROMPTS = [
 ]
 NEG = "blurry, low quality, watermark, text"
 SETTINGS = {"gap_stats": True, "cfg_pp": True, "cfg_pp_strength": 1.0, "corrector": "none"}
+NO_CFGPP = {"gap_stats": True, "corrector": "none"}
 
 
 def latent_for(lf, w, h):
@@ -167,6 +168,9 @@ def main():
     ap.add_argument("--res", default="1024x1408")
     ap.add_argument("--seeds", default="7,11,23")
     ap.add_argument("--out", default=OUT)
+    ap.add_argument("--family", default="krea2", choices=list(FAMILIES))
+    ap.add_argument("--no-cfgpp", action="store_true", help="plain sampler at the family cfg")
+    ap.add_argument("--prompts", default="fox,apple,market,portrait,neon,harbor")
     ap.add_argument("--skip-exp1", action="store_true")
     ap.add_argument("--skip-exp2", action="store_true")
     args = ap.parse_args()
@@ -174,14 +178,17 @@ def main():
     seeds = [int(s) for s in args.seeds.split(",")]
     os.makedirs(args.out, exist_ok=True)
 
-    model, clip, vae, lf = load("krea2")
+    global SETTINGS
+    if args.no_cfgpp:
+        SETTINGS = dict(NO_CFGPP)
+    model, clip, vae, lf = load(args.family)
     print(f"[krea2] {RES[0]}x{RES[1]}  seeds={seeds}")
     if not args.skip_exp1:
         rows1 = exp1(model, clip, vae, lf, seeds[:2])
         json.dump({f"{k[0]}|{k[1]}": v for k, v in rows1.items()},
                   open(os.path.join(args.out, "exp1.json"), "w"), indent=1)
     if not args.skip_exp2:
-        rows2, summary = exp2(model, clip, vae, lf, seeds, ["fox", "apple", "market", "portrait", "neon", "harbor"])
+        rows2, summary = exp2(model, clip, vae, lf, seeds, args.prompts.split(","))
         json.dump({"rows": {f"{k[0]}|{k[1]}": v for k, v in rows2.items()}, "summary": summary},
                   open(os.path.join(args.out, "exp2.json"), "w"), indent=1)
 

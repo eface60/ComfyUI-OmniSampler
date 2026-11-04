@@ -226,6 +226,51 @@ tracks distance from the model's training size, while the guidance statistics
 shrink with area. A resolution gate (off below ~2x the training area, full by
 ~4x) would leave 1.4 MP untouched and keep 6 MP as it is now.
 
+## Deriving the values across models (Krea2, MOSS, Anima; 1024x1024, 12 steps)
+
+`tools/gap_sweep.py --families krea2,moss,anima --res 1024x1024`, with the push
+quantiles now logged. Three numbers fall out, and one does not.
+
+**The structural phase ends at 58% of the steps, in all three models.** The
+cumulative revision rate reaches 80% at step 7 of 12 (0.58) for Krea2, MOSS and
+Anima alike, even though the half-decay point differs (0.17 for Krea2 and Anima,
+0.33 for MOSS). So "structure is finished" is a schedule-fraction invariant, not
+a model property. `gap_local_start = 0.3` sits deliberately *inside* that phase:
+with the smoothstep ramp the relief is only ~35% on when the phase ends, which is
+the compromise between "do not disturb structure" (ramp after 0.58) and "be on
+before the burn accumulates" (ramp before). The bracket is [0.16, 0.58]; 0.3-0.35
+is its middle.
+
+**The tail really is a 4-10x excess.** At the relief-active steps the p90 push is
+4-10x the frame's median push (Krea2 3.6-11, MOSS 5.1-10, Anima 5.3-8). So the
+hot decile is not a mild tail; flattening it is a defensible default rather than
+an aggressive one. Flattening *to the median* would need `keep = median/p90` =
+0.1-0.25, i.e. `gap_parallel - gap_parallel_local` in [0.1, 0.25]; the tuned
+0.6/0.6 subtracts to 0, which is only slightly stronger than parity. Both sit
+inside the measured excess; the burn decides which end.
+
+**The global value is still a budget, not a derivation.** Its only measured anchor
+is the image-level one from the previous section: `0.6/0.6/0.3` is the setting
+whose high-frequency energy lands at the plain-sampling baseline at 1.44 MP
+(B ~ 0.44). That is a calibration, not a law.
+
+**Seed variance on a non-distilled model kills the prompt predictor.** Same
+matrix on MOSS (cfg 3.5, plain sampler, 3 prompts x 3 seeds, 1.44 MP):
+
+| metric | prompt sd | seed sd | F |
+|---|---|---|---|
+| `sat` | 0.0129 | **0.0317** | **0.41** |
+| `clip` | 0.0011 | 0.0008 | 1.30 |
+| `hf` | 0.0132 | 0.0025 | 5.23 |
+| `lum` | 0.0581 | 0.0339 | 1.71 |
+
+On Krea2 the same `sat` ratio was 1.38. The distilled checkpoint makes seeds
+land close together, so its prompt/seed ratio is the optimistic case; on the most
+modern non-distilled model the seed moves saturation 2.5x more than the prompt
+does. Any prompt-derived prediction of *burn behaviour* is tuning against noise
+there -- which closes that idea for the relief knobs, and leaves guidance
+strength (adherence) as the only axis a prompt prior could plausibly improve.
+
 ## Sensors: what the sampler can measure about itself
 
 All three are relative, because the sweep showed no absolute threshold transfers

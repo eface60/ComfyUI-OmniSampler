@@ -679,6 +679,13 @@ def gap_metrics(delta, uncond, cond=None, band=0.05):
         denom = c.pow(2).sum(dim=1, keepdim=True).clamp_min(_GAP_EPS)
         par = (d * c).sum(dim=1, keepdim=True) / denom.sqrt()
         out["par_share"] = float((par.pow(2).sum(dim=dims) / d_energy).mean())
+        # The signed relative push the local gate works with, so its tail can be
+        # read directly: the median (the frame's normal push) and p90 (where the
+        # gate starts).  Their ratio is the tail excess the relief works against.
+        push = (d * c).sum(dim=1, keepdim=True) / denom
+        flat = push.reshape(push.shape[0], -1).float()
+        out["push_med"] = float(torch.quantile(flat, 0.5, dim=1).mean())
+        out["push_p90"] = float(torch.quantile(flat, 0.9, dim=1).mean())
     return out
 
 
