@@ -1556,6 +1556,31 @@ AB_PRESETS = {
         "gap_parallel_local": 0.6,
         "gap_local_start": 0.3,
     },
+    # The author's tuned default: 60% of the contrast everywhere, none on the
+    # hot tail after 30% of the steps (the two knobs subtract, so 0.6 - 0.6 = 0).
+    "T: author (0.6/0.6 from 30%)": {
+        "cfg_pp": True,
+        "cfg_pp_strength": 1.0,
+        "gap_parallel": 0.6,
+        "gap_parallel_local": 0.6,
+        "gap_local_start": 0.3,
+    },
+    # The tail flattened only to the frame's median push (measured parity is
+    # keep ~0.1-0.25, so 0.6 - 0.45 = 0.15 sits in the middle of it).
+    "U: author, parity tail (0.6/0.45 from 30%)": {
+        "cfg_pp": True,
+        "cfg_pp_strength": 1.0,
+        "gap_parallel": 0.6,
+        "gap_parallel_local": 0.45,
+        "gap_local_start": 0.3,
+    },
+    # The same relief without CFG++: for a normal cfg > 1 run (MOSS), to see
+    # whether the contrast relief helps or costs anything where nothing burns.
+    "V: relief only (0.6/0.6 from 30%, no CFG++)": {
+        "gap_parallel": 0.6,
+        "gap_parallel_local": 0.6,
+        "gap_local_start": 0.3,
+    },
     # Stats only: the output is unchanged, but the node prints the per-step
     # cond/uncond gap (at cfg = 1 this forces the unconditional pass, 2x batch).
     "Q: gap probe (no shaping)": {"gap_stats": True},
