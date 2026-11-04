@@ -277,6 +277,13 @@ def test_stats_discriminate():
           lf_tone > 3.0 * lf_tex, f"tone={lf_tone:.3f} tex={lf_tex:.3f}")
     check("par_share is recorded", "gap_par_share_mean" in st_tone,
           f"par={st_tone.get('gap_par_share_mean')}")
+    check("the revision sensor is recorded", "gap_rev_mean" in st_tone,
+          f"rev={st_tone.get('gap_rev_mean')}")
+    check("a constant denoiser has zero revision after the first step",
+          st_tone.get("gap_rev_mean") == 0.0, f"rev={st_tone.get('gap_rev_mean')}")
+    check("the out-of-range sensor sees the oversized prediction",
+          (st_tone.get("gap_oor_mean") or 0.0) > 0.01,
+          f"oor={st_tone.get('gap_oor_mean')}")
 
 
 def test_local_gate():

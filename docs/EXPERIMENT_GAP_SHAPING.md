@@ -183,6 +183,45 @@ Next: run `S` at 6 MP. If the early blobs are gone and the end burn stays
 suppressed, the ramp becomes part of the recommendation, and the remaining
 question is only how much relief the mid-trajectory needs.
 
+## Sensors: what the sampler can measure about itself
+
+All three are relative, because the sweep showed no absolute threshold transfers
+across models (the gap's scale differs 4.7x between families, and the burn
+threshold differs by model).
+
+| sensor | what it is | what it sees | what it cannot see |
+|---|---|---|---|
+| `rev` | `||x0_t - x0_(t-1)|| / ||x0_t||`, the model's own revision rate | the **phase**: high while it is still deciding structure, low once the frame has settled. This is what `gap_local_start` hardcodes, measured instead of assumed. | a still-burning image can be settled, so it cannot see the burn |
+| `oor` | fraction of the guided prediction beyond `3 * u_rms` per channel | the **burn**: how much of this x0 is outside the range the model itself produces. `u` is the prior, so the unit is the model's own sigma. | clipping in the decoded image (no VAE in the sampler); it is a proxy, not a saturation count |
+| `local_mean` / `local_frac` / `local_ref` | the gate's own activity: mean gate, fraction of the frame above half, and the push quantile it used | the **where**: how much of the frame the relief touched and at what push level | whether those pixels are highlights or texture |
+
+They cannot measure "error" in the accuracy sense: there is no target, and the
+decoded image is not available inside the sampler. They measure self-consistency
+and out-of-range-ness, which is the closest thing to "unwanted behaviour" that
+exists at step time.
+
+### Control rules to test, in order
+
+1. **Start from `rev`, not from a fixed fraction.** `gap_local_start` assumes
+   the structure phase ends at 30% of the steps; the measured version is "relief
+   on once `rev` falls below a fraction of its early peak" (or its running
+   median). One run's `gap_rev` series says whether that curve is clean enough to
+   threshold. This is a **feed-forward** rule -- the relief is computed from the
+   step's own measurement, never integrated over the run -- so it cannot
+   oscillate the way a controller with memory would.
+2. **Amount from `oor`.** Run plain (`s = 0`, `gap_stats`) once on the same
+   model/size/prompt; its `gap_oor` series is the baseline for that model at that
+   size. Then a CFG++ run can scale the relief by how far above that baseline it
+   is: no baseline excess, no relief. That is the two-run calibration again, but
+   on a quantity that is directly the symptom rather than on the gap.
+3. **Per-pixel phase.** The natural next step if the global `rev` is not enough:
+   a per-pixel revision map, normalised by the frame's median, so the relief is
+   off where structure is still forming and on where it has settled. That is the
+   PD-AOS jump map used in the opposite direction to its own.
+
+Deliberately *not* proposed: an integrating controller on `oor` (it would
+feedback into the thing it measures) and any absolute threshold.
+
 ## What is still worth testing
 
 1. **`gap_parallel_local` (local APG) at 6 MP.** First run: the end burn is

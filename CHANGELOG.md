@@ -49,6 +49,16 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   `R: gap local APG (0.6)`. Invariants verified in `tools/gap_shape_check.py`
   (uniform push leaves the gate at zero, the hotspot fires it, scale-free,
   `local=0` bit-identical, `cond == uncond` no-op); unmeasured on a real model.
+* **Sensors for the automatic rules**: `gap_stats` now also records `rev` (the
+  model's own revision rate, `||x0_t - x0_(t-1)|| / ||x0_t||` -- the phase
+  signal that `gap_local_start` currently hardcodes) and `oor` (the fraction of
+  the guided prediction beyond `3 * u_rms` per channel, i.e. outside the range
+  the unconditional prior itself produces -- the burn signal). Both are relative
+  and recomputed every step, so they transfer across models and resolutions. The
+  A/B node prints their means in its config string. The proposed rules
+  (feed-forward start from `rev`, amount from `oor` against a plain-run baseline,
+  per-pixel phase later) are in
+  [docs/EXPERIMENT_GAP_SHAPING.md](docs/EXPERIMENT_GAP_SHAPING.md#sensors-what-the-sampler-can-measure-about-itself).
 * **Measurement: the guidance gap does not grow with resolution.** A sweep of
   Krea2 turbo (cfg 1), MOSS base (cfg 3.5) and Anima base 1.0 (cfg 4) over
   0.26-6.03 MP, 12 steps, one prompt/seed, `gap_stats` only (no image change):

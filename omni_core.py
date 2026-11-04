@@ -698,18 +698,23 @@ def gap_summary(series):
     return out
 
 
-def gap_summary(series):
-    """Mean/first/last/max of each metric over a ``[(sigma, metrics), ...]``."""
-    out = {}
-    for key in ("rms_ratio", "lf_share", "par_share", "cap_scale"):
-        vals = [m[key] for _, m in series if key in m]
-        if not vals:
-            continue
-        out[key + "_mean"] = float(sum(vals) / len(vals))
-        out[key + "_first"] = float(vals[0])
-        out[key + "_last"] = float(vals[-1])
-        out[key + "_max"] = float(max(vals))
-    return out
+def _gap_oor(den, uncond, k=3.0):
+    """Fraction of the guided prediction beyond ``k`` unconditional sigmas.
+
+    A cheap, self-normalising burn sensor: the unconditional prediction is the
+    prior, so its per-channel RMS at this step is the natural unit in which "this
+    x0 is outside the range the model itself produces" can be measured.  No
+    quantile (too slow at 6 MP): the threshold is ``k * u_rms`` per channel,
+    recomputed every step, so the number is comparable across models and
+    resolutions.
+    """
+    d4, _ = _gap_4d(den)
+    u4, _ = _gap_4d(uncond)
+    if d4 is None or u4 is None:
+        return None
+    uu = u4.float()
+    rms = uu.pow(2).mean(dim=(2, 3), keepdim=True).sqrt().clamp_min(_GAP_EPS)
+    return float((d4.float().abs() > k * rms).float().mean())
 
 
 def _final_extrapolate(x0, values, sigmas, weight):
@@ -915,6 +920,7 @@ def sample_omni(
     # which step it is on, and the loop is the only place that knows.
     gap_step = {"i": 0, "n": int(n_steps)}
     gap_series = []
+    prev_den_for_rev = None
     gap_seen = 0
     gap_skipped = 0
     gap_local_sum = 0.0
@@ -932,7 +938,7 @@ def sample_omni(
     cfgpp_active = bool(cfg_pp) and float(cfg_pp_strength) > 0.0
     if cfgpp_active or cfg_map or gap_active:
         def post_cfg_function(args):
-            nonlocal uncond_denoised, gap_seen, gap_skipped, gap_cap_sum, gap_cap_steps
+            nonlocal uncond_denoised, gap_seen, gap_skipped, gap_cap_sum, gap_cap_steps, prev_den_for_rev
             nonlocal gap_local_sum, gap_local_frac_sum, gap_local_steps, gap_local_ref
             u = args.get("uncond_denoised")
             den = args["denoised"]
@@ -997,6 +1003,19 @@ def sample_omni(
                         m["local_frac"] = info["local_frac"]
                 den = u + shaped
             if m is not None:
+                # Sensors, measured on what the step will actually use.  `rev`
+                # is the model's own revision rate: high while it is still
+                # deciding structure, low once the frame has settled.  `oor` is
+                # the burn sensor: how much of the guided prediction is outside
+                # the prior's own range.  Both are relative, so they are
+                # comparable across models, resolutions and schedules.
+                if prev_den_for_rev is not None:
+                    m["rev"] = float((den - prev_den_for_rev).norm()
+                                     / den.norm().clamp_min(_GAP_EPS))
+                prev_den_for_rev = den.detach()
+                oor = _gap_oor(den, u)
+                if oor is not None:
+                    m["oor"] = oor
                 gap_series.append((sigma_now, m))
             return den
 

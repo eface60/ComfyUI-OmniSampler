@@ -848,6 +848,8 @@ class OmniKSampler:
                                ("gap_lf_share_mean", "lf"),
                                ("gap_par_share_mean", "par"),
                                ("gap_local_mean", "local"),
+                               ("gap_rev_mean", "rev"),
+                               ("gap_oor_mean", "oor"),
                                ("gap_cap_mean", "capx")):
                 if st.get(key) is not None:
                     bits.append(f"{label} {st[key]:.2f}")
