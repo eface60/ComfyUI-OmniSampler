@@ -62,18 +62,22 @@ from omni_sampler.tools.modern_bench import FAMILIES, NEG, PROMPT, load, to_hwc 
 OUT = os.path.join(REPO, "outputs", "gap_shaping")
 SEED = 7
 
-CFGPP = {"cfg_pp": True, "cfg_pp_strength": 1.0}
+CFGPP = {"cfg_pp": True, "cfg_pp_strength": 1.0, "gap_stats": True}
 ARMS = {
     "plain": ({}, 1.0),
     "probe": ({"gap_stats": True}, 1.0),
     "cfgpp": (dict(CFGPP), 1.0),
-    "s05": ({"cfg_pp": True, "cfg_pp_strength": 0.5}, 1.0),
+    "s05": ({"cfg_pp": True, "cfg_pp_strength": 0.5, "gap_stats": True}, 1.0),
     "hf": ({**CFGPP, "gap_lf": 0.05, "gap_lf_keep": 0.0}, 1.0),
     "cap": ({**CFGPP, "gap_cap": 0.2}, 1.0),
     "hf_cap": ({**CFGPP, "gap_lf": 0.05, "gap_lf_keep": 0.0, "gap_cap": 0.2}, 1.0),
     "project": ({**CFGPP, "gap_parallel": 0.0}, 1.0),
     "local": ({**CFGPP, "gap_parallel_local": 0.6}, 1.0),
     "local_late": ({**CFGPP, "gap_parallel_local": 0.6, "gap_local_start": 0.3}, 1.0),
+    # The author's tuned default: 60% of the contrast everywhere, none on the
+    # hot tail after 30% of the steps (the two knobs subtract, so 0.6 - 0.6 = 0).
+    "author": ({**CFGPP, "gap_parallel": 0.6, "gap_parallel_local": 0.6,
+                "gap_local_start": 0.3}, 1.0),
     "cfg2": (dict(CFGPP), 2.0),
 }
 
@@ -89,10 +93,10 @@ def image_metrics(img):
     ``hf``   mean |Laplacian| of luminance over the flattest half of the image,
              i.e. grain/banding in smooth areas -- the artifact proxy.
     """
-    x = img[0].float()
-    sat = float((x.max(dim=0).values - x.min(dim=0).values).mean())
+    x = img[:, :3].float()                                  # (1,3,H,W)
+    sat = float((x.amax(dim=1) - x.amin(dim=1)).mean())
     clip = float(((x <= 0.004) | (x >= 0.996)).float().mean())
-    lum = x.mean(dim=0, keepdim=True)
+    lum = x.mean(dim=1, keepdim=True)                       # (1,1,H,W)
     lap = F.conv2d(F.pad(lum, (1, 1, 1, 1), mode="replicate"), _LAP.to(lum.device))
     g = lum.new_zeros(lum.shape)
     g[:, :, :, 1:] += (lum[:, :, :, 1:] - lum[:, :, :, :-1]).abs()
@@ -115,6 +119,11 @@ def _fmt(v):
     return "   -  " if v is None else f"{v:5.3f}"
 
 
+def _num(v, width, digits):
+    """Fixed-width cell that renders a dash when a metric was not computed."""
+    return f"{v:>{width}.{digits}f}" if v is not None else "-".rjust(width)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--family", default="krea2", choices=list(FAMILIES))
@@ -124,6 +133,9 @@ def main():
     ap.add_argument("--arms", default=",".join(ARMS))
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--out", default=OUT)
+    ap.add_argument("--no-decode", action="store_true",
+                    help="skip the VAE decode (latent-space statistics only); the 6 MP "
+                         "decode is both slow and, on the Wan VAE, broken under tiling")
     ap.add_argument("--dry-run", action="store_true", help="build the plan, load nothing")
     args = ap.parse_args()
 
@@ -173,16 +185,21 @@ def main():
                 model_options=model.model_options, latent_image=latent,
                 disable_pbar=True, seed=args.seed)
             st = dict(omni_core.LAST_STATS)
-            # A 6 MP full decode can exhaust a 24 GB card once the model is
-            # resident; fall back to the tiled decoder the nodes use.
-            try:
-                img = vae.decode(s.to(model.load_device))
-            except Exception as exc:  # noqa: BLE001
-                print(f"    (full decode failed: {type(exc).__name__}; tiling)", flush=True)
-                torch.cuda.empty_cache()
-                img = vae.decode_tiled(s.to(model.load_device), tile_x=512, tile_y=512,
-                                       overlap=64)
+            img = None
+            if not args.no_decode:
+                # A 6 MP full decode can exhaust a 24 GB card once the model is
+                # resident, and this Wan VAE's tiled path is broken in this
+                # ComfyUI build (process_output does an in-place op on an
+                # inference tensor).  So: decode small sizes, skip big ones.
+                try:
+                    if w * h > 2_500_000:
+                        raise RuntimeError("large decode skipped")
+                    img = vae.decode(s.to(model.load_device))
+                except Exception as exc:  # noqa: BLE001
+                    print(f"    (decode skipped: {type(exc).__name__}: {exc})", flush=True)
         dt = time.time() - t0
+        if img is None:
+            return None, dt, st
         t = to_hwc(img).float()
         label = f"{args.family}_{arm}_{w}x{h}_{args.steps}"
         Image.fromarray((t[0].permute(1, 2, 0).numpy() * 255).astype(np.uint8)).save(
@@ -198,12 +215,13 @@ def main():
         cfg = float(cfg if name == "cfg2" else cfg_family)
         try:
             t, dt, st = render(name, opts, cfg)
-            m = image_metrics(t)
+            m = image_metrics(t) if t is not None else {}
             g = gap_fields(st)
             rows.append({"arm": name, "cfg": cfg, "sec": round(dt, 1), **m,
                          "gap": g, "gap_series": st.get("gap_series") or []})
-            print(f"{name:8s} {cfg:4g} {dt:6.1f} {m['sat']:7.4f} {m['clip']:7.4f} "
-                  f"{m['hf']:8.5f} {m['lum']:6.4f} | "
+            print(f"{name:8s} {cfg:4g} {dt:6.1f} "
+                  f"{_num(m.get('sat'), 7, 4)} {_num(m.get('clip'), 7, 4)} "
+                  f"{_num(m.get('hf'), 8, 5)} {_num(m.get('lum'), 6, 4)} | "
                   f"{_fmt(g.get('rms_ratio_mean'))} {_fmt(g.get('lf_share_mean'))} "
                   f"{_fmt(g.get('par_share_mean'))} {_fmt(g.get('cap_mean'))}", flush=True)
         except Exception as exc:  # noqa: BLE001 - one bad arm must not kill the matrix
@@ -221,8 +239,9 @@ def main():
                 fh.write(f"{r['arm']:8s} FAILED {r['failed']}\n")
                 continue
             g = r["gap"]
-            fh.write(f"{r['arm']:8s} {r['cfg']:4g} {r['sec']:6.1f} {r['sat']:7.4f} "
-                     f"{r['clip']:7.4f} {r['hf']:8.5f} {r['lum']:6.4f} | "
+            fh.write(f"{r['arm']:8s} {r['cfg']:4g} {r['sec']:6.1f} "
+                     f"{_num(r.get('sat'), 7, 4)} {_num(r.get('clip'), 7, 4)} "
+                     f"{_num(r.get('hf'), 8, 5)} {_num(r.get('lum'), 6, 4)} | "
                      f"{_fmt(g.get('rms_ratio_mean'))} {_fmt(g.get('lf_share_mean'))} "
                      f"{_fmt(g.get('par_share_mean'))} {_fmt(g.get('cap_mean'))}\n")
     print(f"\nwrote {len(rows)} rows to {os.path.join(args.out, 'results.txt')}")

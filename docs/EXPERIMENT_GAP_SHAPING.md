@@ -183,6 +183,49 @@ Next: run `S` at 6 MP. If the early blobs are gone and the end burn stays
 suppressed, the ramp becomes part of the recommendation, and the remaining
 question is only how much relief the mid-trajectory needs.
 
+## Measuring the constants (Krea2, 12 steps, 6.03 MP and 1.44 MP)
+
+Run with `tools/gap_shape_bench.py` (`probe`, `cfgpp`, `author`), seed 7,
+`simple`. The 6 MP arms were stats-only: this Wan VAE's tiled decode is broken in
+this ComfyUI build, and a full-frame 6 MP decode does not fit next to the model.
+
+**`gap_local_start` is derivable, and 0.3 is the right number.** The revision
+rate `rev` (the model's own step-to-step change of `x0`) peaks in the first two
+steps and then decays: at 6 MP the peak is 0.84 and it has halved at step 4 of 12
+= **0.33**; at 1.44 MP the peak is 1.02 and it also halves at step 4 = **0.33**.
+The half-decay point is resolution-independent and matches the tuned 0.3. Note
+that only ~59% of the total revision is done by then and 80% is not reached until
+step ~7 of 12 (0.58): 0.3 means "the model has stopped changing its mind
+fastest", not "the structure is finished". If early glitches ever reappear at
+higher step counts, 0.45-0.55 is the conservative bound, and that is what the
+80%-of-revision number is for.
+
+**The two contrast knobs subtract, so 0.6 + 0.6 is a stronger statement than it
+looks.** `keep = gap_parallel - gap_parallel_local * gate`, so the tuned pair
+leaves the hot tail with **zero** parallel component and everything else at 60%.
+The gate's mean over the run is ~0.07 of the frame, so the area-weighted keep is
+~0.56: about **44% of the contrast component removed overall**, concentrated on
+the tail. That single number is the real parameter; the split between global and
+local is what decides *where* it is spent.
+
+**`oor` is not a burn sensor.** It peaks at the first two steps (0.118 -> 0.036
+-> 0.002 at 6 MP) and is identical for `probe` and `cfgpp` apart from step 0,
+because at cfg 1 both hand the sampler the same `x0` target. It measures early
+out-of-range-ness of the prediction, not the late tone accumulation. So the
+depth of the relief cannot be closed-loop from the latent statistics available;
+it is an image-level calibration.
+
+**The relief is not free at the size that does not need it.** At 1024x1408,
+`author` vs `cfgpp`: `hf` 0.00311 vs 0.00427 (**-27%** high-frequency energy),
+`sat` 0.0866 vs 0.0786, `lum` 0.7075 vs 0.7086. The image is visibly softer --
+the tuned setting buys burn suppression at 6 MP by spending local contrast at
+1.4 MP, where there is no burn.
+
+That points at the next rule rather than another constant: the *need* for relief
+tracks distance from the model's training size, while the guidance statistics
+shrink with area. A resolution gate (off below ~2x the training area, full by
+~4x) would leave 1.4 MP untouched and keep 6 MP as it is now.
+
 ## Sensors: what the sampler can measure about itself
 
 All three are relative, because the sweep showed no absolute threshold transfers
