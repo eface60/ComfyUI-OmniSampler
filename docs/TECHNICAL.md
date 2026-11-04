@@ -47,10 +47,11 @@ that failed — that chose the defaults. Every number here comes from a script i
 
 ## Parameters
 
-Both nodes expose these same sampler widgets, generated from one definition.
-Most defaults are measured best. `px_order` and `cfg_map` ship OFF with
-safe-fallback values, because their measurement is a caution, not a win; see the
-[spatial section](#optional-spatial-controls-v15-off-by-default).
+The advanced sampler node and the A/B KSampler expose these same sampler
+widgets, generated from one definition; the simple node exposes only the named
+settings below. Most defaults are measured best. `px_order` and `cfg_map` ship
+OFF with safe-fallback values, because their measurement is a caution, not a
+win; see the [spatial section](#optional-spatial-controls-v15-off-by-default).
 
 | input | default | meaning |
 |---|---|---|
@@ -85,10 +86,12 @@ safe-fallback values, because their measurement is a caution, not a win; see the
 | `gap_local_start` | 0.0 | step fraction (0 = first step, 1 = last) after which the local relief ramps in; early steps are left alone |
 | `gap_stats` | false | record the per-step cond/uncond gap in `LAST_STATS` without changing the output; at cfg = 1 this forces the unconditional pass (2x batch) |
 
-The same A/B preset rows are available on both nodes through `variant`
+The same A/B preset rows are available on the A/B KSampler through `variant`
 (see [AB_TESTING.md](AB_TESTING.md)). A preset overrides only the settings it
 names, so the remaining knobs keep their values; choose `custom (use knobs)` to
-use every knob as set.
+use every knob as set. The simple sampler node uses the *named settings*
+(`omni_hybrid`, `omni_hybrid_sde`, `omni_hybrid_cfg_pp`, `omni_hybrid_gap`)
+instead of the lab rows.
 
 Cost: **1 NFE per step + 1** (the step-0 corrector; `corrector_cfgpp` adds one
 more under CFG++). `eta=0` and `cfg_pp=false` add nothing else.
@@ -310,19 +313,19 @@ noise, either law) and `churn_capped` (steps the flow cap reduced), which is the
 quickest way to confirm a churn setting actually fires on a given schedule; the
 A/B node prints `churn k/n steps` in its config string for the same reason.
 
-### Author preference preset (v1.5.5)
+### The retired author-preference name (v1.5.5, removed on the experiment branch)
 
-`omni_hybrid_cfgpp_author_pref` is the author's own everyday setting: CFG++ on
-(`cfg_pp_strength` 0.5, the default), gamma churn at the slider maximum
-(`s_churn=100`), `eta=1`, and the `px_order` gate on. Every other knob is the
-shipped default from the table above.
+omni_hybrid_cfgpp_author_pref was the author's everyday by-eye setting: CFG++
+0.5, gamma churn at the slider maximum, eta=1, and the px_order gate. It was
+never a measured optimum, and the gap relief superseded it, so the registered
+name is gone: the stock KSampler / KSamplerAdvanced / KSamplerSelect lists now
+carry the three measured settings plus the experimental omni_hybrid_gap.
+The combination itself is still reachable as A/B row M: cfgpp+churn+eta+px
+(lab) on the A/B node.
 
-This one is a preference, not a measured optimum: chosen by eye across the
-author's own runs, with no benchmark covering the combination — the churn, eta
-and `px_order` measurements here were taken at other values. The documented
-laws still apply: the gamma mode skips any step where its offset would exceed
-the schedule's first sigma, and CFG++ at `cfg=1` forces the unconditional pass
-(a 2x model batch).
+The gap relief's own setting (omni_hybrid_gap) is documented in
+[EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md); it is not part of a
+release, and it is the only extra name the branch registers.
 
 ## Optional spatial controls (v1.5, OFF by default)
 

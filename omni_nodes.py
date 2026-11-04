@@ -22,7 +22,7 @@ def _parse_eta_window(value):
     """Return a valid (low, high) eta window, or the shipped default.
 
     The widget is a STRING because ComfyUI has no two-float tuple widget; the
-    sampler wants a tuple.  Both nodes go through this function so a malformed
+    sampler wants a tuple.  Every node goes through this function so a malformed
     string cannot reach ``sample_omni`` (which unpacks exactly two values).
     """
     if isinstance(value, (tuple, list)) and len(value) == 2:
@@ -43,7 +43,7 @@ def _parse_eta_window(value):
 def _resolve_sampler_options(inputs):
     """Turn node widget values into ``sample_omni`` keyword arguments.
 
-    One resolver for both nodes: the preset row is applied first, then the eta
+    One resolver for every node that takes knobs: the preset row is applied first, then the eta
     window is parsed, so the KSampler and the SAMPLER node cannot drift apart.
     Keys not in ``DEFAULTS`` (the KSampler's model/latent I/O, the ``variant``
     widget itself) are dropped; ``sample_omni``'s own defaults cover the rest.
@@ -57,7 +57,8 @@ def _resolve_sampler_options(inputs):
 
 
 # ---------------------------------------------------------------------------
-# Sampler widgets.  One definition per knob, used by BOTH nodes: the widget
+# Sampler widgets.  One definition per knob, used by the advanced node and the A/B
+# KSampler: the widget
 # sets are kept equal by tools/test_node_parity.py.  A tooltip names every
 # choice of every combo, because a tooltip is the only place a user can learn
 # what a value does without reading omni_core.py.
@@ -79,8 +80,8 @@ _KNOB_SPECS = {
                 "I: SDE eta 0.3; J: no gate = min_step_ratio 0; "
                 "K: per-pixel order = px_order on; "
                 "L: region CFG map = cfg_map on; "
-                "M: author pref (cfgpp+churn+eta+px) = cfg_pp on, gamma churn 100, eta 1.0, "
-                "px_order on (the registered author-preference name); "
+                "M: cfgpp+churn+eta+px (lab) = cfg_pp on, gamma churn 100, eta 1.0, "
+                "px_order on (the old eye-tuned combination, kept as a lab row); "
                 "N: gap HF (5%) = gap_lf 0.05; O: gap cap 0.2 = gap_cap 0.2; "
                 "P: gap HF + cap = both; Q: gap probe (no shaping) = gap_stats on "
                 "(experimental guidance-gap shaping, docs/EXPERIMENT_GAP_SHAPING.md); "
@@ -94,6 +95,23 @@ _KNOB_SPECS = {
                 "cfg_pp, for a plain cfg > 1 run. "
                 "A preset overrides only the knobs it names; custom (use knobs) "
                 "uses every knob as set."
+            ),
+        },
+    ),
+    "preset": (
+        list(VARIANTS),
+        {
+            "default": "omni_hybrid",
+            "tooltip": (
+                "Named setting for the SAMPLER this node builds. "
+                "omni_hybrid = the measured defaults; "
+                "omni_hybrid_sde = the same with mid-trajectory SDE noise (eta 0.5); "
+                "omni_hybrid_cfg_pp = CFG++ guidance at the shipped strength 0.5; "
+                "omni_hybrid_gap = CFG++ at strength 1.0 plus the contrast relief "
+                "that fixes the 6 MP Krea2 burn (gap_parallel 0.6, "
+                "gap_parallel_local 0.6, gap_local_start 0.3; judged harmless at "
+                "1.4 MP and on MOSS -- docs/EXPERIMENT_GAP_SHAPING.md). "
+                "The config output prints every non-default setting."
             ),
         },
     ),
@@ -593,7 +611,7 @@ def _knob(name):
 
 
 # The KSampler's own I/O.  These are the widgets a SAMPLER object cannot own,
-# so they are the only keys allowed to differ between the two nodes.
+# so they are the only keys allowed to differ between the advanced node and the A/B KSampler.
 _KSAMPLER_IO = {
     "model": ("MODEL", {"tooltip": "Diffusion model to sample."}),
     "positive": ("CONDITIONING", {"tooltip": "Conditioning that guides toward the prompt."}),
@@ -673,34 +691,72 @@ _KSAMPLER_ORDER = _V151_KSAMPLER_ORDER + [
 ]
 
 
-class OmniSamplerSelect:
-    """Build an Omni-Hybrid SAMPLER object for SamplerCustom / SamplerCustomAdvanced.
+def _config_string(label: str, opts: dict) -> str:
+    """One line naming the setting and every knob that differs from the defaults."""
+    delta = {k: v for k, v in opts.items() if DEFAULTS.get(k) != v}
+    body = ", ".join(f"{k}={v}" for k, v in sorted(delta.items())) or "defaults"
+    return f"{label} | {body}"
 
-    Exposes the same sampler knobs as OmniKSampler, including the A/B preset
-    switch; only the sampling I/O (model, conditioning, latent, seed, steps,
-    cfg, scheduler, denoise) stays on the full KSampler node, because a SAMPLER
-    object cannot own them.
+
+# The advanced node's widget order: the full select order without the preset
+# switch (that node is the one that does not use presets).
+_SELECT_ADVANCED_ORDER = [name for name in _SELECT_ORDER if name != "variant"]
+
+
+class OmniSamplerSelectSimple:
+    """Build the SAMPLER for one named setting: a preset dropdown and a config string.
+
+    The smallest node that does the job, for SamplerCustom / SamplerCustomAdvanced.
+    Per-knob control is on OmniSamplerSelectAdvanced; this node deliberately
+    exposes nothing else, so a workflow can stay one dropdown wide.
     """
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {name: _knob(name) for name in _SELECT_ORDER}}
+        return {"required": {"preset": _knob("preset")}}
 
-    RETURN_TYPES = ("SAMPLER",)
-    RETURN_NAMES = ("sampler",)
+    RETURN_TYPES = ("SAMPLER", "STRING")
+    RETURN_NAMES = ("sampler", "config")
     FUNCTION = "build"
     CATEGORY = CATEGORY
     DESCRIPTION = (
-        "Omni-Hybrid sampler: exponential integrator in logSNR time (correct for both "
-        "eps and flow models), variable-step x0 extrapolation with a stability guard, "
-        "gated SDE noise, CFG++, churn, and the same optional controls as the full "
-        "Omni-Hybrid KSampler node."
+        "Omni-Hybrid sampler (simple): pick a named setting, get a SAMPLER for "
+        "SamplerCustom / SamplerCustomAdvanced plus the resolved settings as text."
+    )
+
+    def build(self, preset):
+        opts = dict(DEFAULTS)
+        opts.update(VARIANTS.get(preset, {}))
+        opts["eta_window"] = _parse_eta_window(opts.get("eta_window", DEFAULTS["eta_window"]))
+        return (comfy.samplers.KSAMPLER(functools.partial(sample_omni, **opts)),
+                _config_string(preset, opts))
+
+
+class OmniSamplerSelectAdvanced:
+    """Build an Omni-Hybrid SAMPLER object with every knob, no preset switch.
+
+    Same widget set as the A/B KSampler minus its `variant` row, so the node can
+    be set up from scratch without a preset overriding anything.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {name: _knob(name) for name in _SELECT_ADVANCED_ORDER}}
+
+    RETURN_TYPES = ("SAMPLER", "STRING")
+    RETURN_NAMES = ("sampler", "config")
+    FUNCTION = "build"
+    CATEGORY = CATEGORY
+    DESCRIPTION = (
+        "Omni-Hybrid sampler (advanced): every knob, no preset switch, for "
+        "SamplerCustom / SamplerCustomAdvanced."
     )
 
     def build(self, **inputs):
         """Build the KSAMPLER. All inputs arrive by name from ComfyUI."""
         opts = _resolve_sampler_options(inputs)
-        return (comfy.samplers.KSAMPLER(functools.partial(sample_omni, **opts)),)
+        return (comfy.samplers.KSAMPLER(functools.partial(sample_omni, **opts)),
+                _config_string("advanced", opts))
 
 
 def _make_registered(name: str, overrides: dict):
@@ -888,8 +944,13 @@ class OmniKSampler:
         return (out, summary)
 
 
-NODE_CLASS_MAPPINGS = {"OmniSamplerSelect": OmniSamplerSelect, "OmniKSampler": OmniKSampler}
+NODE_CLASS_MAPPINGS = {
+    "OmniSamplerSelectSimple": OmniSamplerSelectSimple,
+    "OmniSamplerSelectAdvanced": OmniSamplerSelectAdvanced,
+    "OmniKSampler": OmniKSampler,
+}
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "OmniSamplerSelect": "Omni-Hybrid Sampler (select)",
+    "OmniSamplerSelectSimple": "Omni-Hybrid Sampler (simple)",
+    "OmniSamplerSelectAdvanced": "Omni-Hybrid Sampler (advanced)",
     "OmniKSampler": "Omni-Hybrid KSampler (A/B)",
 }

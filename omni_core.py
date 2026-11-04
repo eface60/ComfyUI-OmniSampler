@@ -1525,10 +1525,10 @@ AB_PRESETS = {
     "J: no gate": {"min_step_ratio": 0.0},
     "K: per-pixel order": {"px_order": True},
     "L: region CFG map": {"cfg_map": True},
-    # The registered author-preference sampler name, as an A/B row so the node
-    # can compare the combination with its parts at equal NFE.  Same delta as
-    # VARIANTS["omni_hybrid_cfgpp_author_pref"].
-    "M: author pref (cfgpp+churn+eta+px)": {
+    # The old eye-tuned author combination, kept as a lab row after its
+    # registered sampler name was retired (the gap relief superseded it):
+    # CFG++ 0.5 + gamma churn at the slider maximum + eta 1 + per-pixel order.
+    "M: cfgpp+churn+eta+px (lab)": {
         "cfg_pp": True,
         "s_churn": 100.0,
         "churn_mode": "gamma",
@@ -1586,24 +1586,14 @@ AB_PRESETS = {
     "Q: gap probe (no shaping)": {"gap_stats": True},
 }
 
-# Registered preset variants (each also selectable through the Sampler node).
+# Named settings (the preset dropdown on the simple node, and the sampler names
+# registered in the stock KSampler / KSamplerSelect lists).  The eye-tuned
+# author-preference combination was retired in favour of the measured gap
+# setting below; its lab row M still exists for A/B comparison.
 VARIANTS = {
     "omni_hybrid": {},                       # measured defaults
     "omni_hybrid_sde": {"eta": 0.5},         # mid-trajectory stochasticity
     "omni_hybrid_cfg_pp": {"cfg_pp": True},  # CFG++ guidance
-    # The author's own everyday setting, copied from the A/B node: CFG++, gamma
-    # churn at the slider maximum (100), eta 1.0 and the per-pixel order gate;
-    # every other knob is the shipped default.  Chosen by eye across the
-    # author's own runs, not by a measurement: no benchmark covers this
-    # combination, and the churn/eta/px_order numbers in docs/TECHNICAL.md were
-    # taken at other values.
-    "omni_hybrid_cfgpp_author_pref": {
-        "cfg_pp": True,
-        "s_churn": 100.0,
-        "churn_mode": "gamma",
-        "eta": 1.0,
-        "px_order": True,
-    },
     # Experimental (docs/EXPERIMENT_GAP_SHAPING.md): CFG++ with the contrast
     # component at 60%, the hot tail flattened after 30% of the steps.  This is
     # the tuned setting the author judged harmless at 1.4 MP and on MOSS, and

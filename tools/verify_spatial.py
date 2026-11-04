@@ -277,7 +277,7 @@ def main():
         from omni_sampler import omni_nodes
         from omni_sampler.omni_core import DEFAULTS
         bad = []
-        for cls in (omni_nodes.OmniSamplerSelect, omni_nodes.OmniKSampler):
+        for cls in (omni_nodes.OmniSamplerSelectAdvanced, omni_nodes.OmniKSampler):
             for name, spec in cls.INPUT_TYPES()["required"].items():
                 if not isinstance(spec, (list, tuple)) or len(spec) < 2:
                     continue
@@ -291,7 +291,7 @@ def main():
                     if not (lo <= d <= hi):
                         bad.append("%s.%s default %r outside [%r, %r]" % (cls.__name__, name, d, lo, hi))
         check("every node widget default is inside its own range", not bad, "; ".join(bad))
-        sel = set(omni_nodes.OmniSamplerSelect.INPUT_TYPES()["required"])
+        sel = set(omni_nodes.OmniSamplerSelectAdvanced.INPUT_TYPES()["required"])
         need = {"px_order", "px_order_tol", "cfg_map", "cfg_map_floor", "cfg_map_start"}
         check("the select node emits every new knob", need <= sel, str(sorted(need - sel)))
         check("engine defaults cover every new knob",

@@ -4,9 +4,11 @@
 negative / latent / seed / steps / cfg / scheduler / denoise, every Omni knob,
 and a `variant` switch that selects a preset row. It returns the latent plus a
 `config` string (also printed to the console) so two runs can be told apart in
-the metadata. The same `variant` switch and knob set are on
-`Omni-Hybrid Sampler (select)` for SamplerCustom / SamplerCustomAdvanced; that
-node returns the SAMPLER instead of a latent, so it has no config string.
+the metadata. The same knob set is on
+`Omni-Hybrid Sampler (advanced)` for SamplerCustom / SamplerCustomAdvanced
+(without the preset switch); `Omni-Hybrid Sampler (simple)` builds the same
+SAMPLER object from one named setting. Both return the resolved settings as a
+config string.
 
 Pick `custom (use knobs)` to drive the knobs yourself; any named preset overrides
 only the settings it mentions, so the rest keeps your knob values.
@@ -28,7 +30,7 @@ only the settings it mentions, so the rest keeps your knob values.
 | `J: no gate` | `min_step_ratio=0` | disables the step-ratio guard |
 | `K: per-pixel order` | `px_order=True` | experimental PD-AOS port; a tight tolerance cost 0.014 SSIM on Krea2 @8, a loose one was neutral (see [the PD-AOS audit](PD_AOS_AUDIT.md)) |
 | `L: region CFG map` | `cfg_map=True` | experimental PD-AOS port; needs cfg > 1, moves MOSS @8 by 0.0142 image RMS (SSIM 0.9824) |
-| `M: author pref (cfgpp+churn+eta+px)` | `cfg_pp=True, s_churn=100, churn_mode=gamma, eta=1.0, px_order=True` | the registered `omni_hybrid_cfgpp_author_pref` name as one row, so the combination can be compared with its parts at equal NFE; chosen by eye, no benchmark covers it |
+| `M: cfgpp+churn+eta+px (lab)` | `cfg_pp=True, s_churn=100, churn_mode=gamma, eta=1.0, px_order=True` | the retired author-preference combination, kept as a lab row; chosen by eye, no benchmark covers it |
 | `N: gap HF (5%)` | `gap_lf=0.05, gap_lf_keep=0.0` | experiment branch only: move the delta's low-frequency band back to the unconditional prediction ([EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md)); unmeasured |
 | `O: gap cap 0.2` | `gap_cap=0.2` | experiment branch only: per-pixel delta cap at 0.2x the local unconditional magnitude; unmeasured |
 | `P: gap HF + cap` | `gap_lf=0.05, gap_cap=0.2` | experiment branch only: the combination the `omni_hybrid_gap` name uses; unmeasured |

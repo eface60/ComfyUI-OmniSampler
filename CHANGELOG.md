@@ -5,6 +5,19 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 
 ## Unreleased
 
+### Changed (experiment branch)
+
+* **Node layout.** The single select node split in two: `Omni-Hybrid Sampler
+  (simple)` is one preset dropdown plus a `config` string, and `Omni-Hybrid
+  Sampler (advanced)` is every knob with no preset switch. Both build the
+  SAMPLER object for SamplerCustom / SamplerCustomAdvanced. The A/B KSampler is
+  unchanged. The `omni_hybrid_cfgpp_author_pref` name is retired, so the stock
+  KSampler / KSamplerAdvanced / KSamplerSelect lists carry the three measured
+  settings plus `omni_hybrid_gap`; that combination survives as A/B row
+  `M: cfgpp+churn+eta+px (lab)`. Workflows saved against the old select node must
+  be re-pointed at the advanced node (its widget order is the old one minus
+  `variant`).
+
 ### Added (experiment branch `experiments/gap-shaping`, OFF by default)
 
 * **Guidance-gap shaping.** The cond/uncond delta is the only thing CFG adds to

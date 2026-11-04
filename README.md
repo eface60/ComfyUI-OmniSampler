@@ -13,8 +13,8 @@ fixes the step size that `dpmpp_2m`, `ipndm`, `res_multistep` and friends comput
 for epsilon models only — a mismatch that costs them accuracy on flow models.
 
 It installs as a normal custom node: four extra names in the stock sampler
-dropdowns (this branch adds a fifth, the experimental `omni_hybrid_gap`), plus
-two nodes if you want control over every knob. Every default is backed by a
+dropdowns (three measured settings plus the experimental `omni_hybrid_gap`), plus
+three nodes if you want control over every knob. Every default is backed by a
 measurement, and the scripts that produced them ship with the repo.
 
 ## Install
@@ -41,7 +41,6 @@ four names where you would normally choose `dpmpp_2m`:
 | **`omni_hybrid`** | the measured defaults: deterministic, second order, one extra evaluation on the first step | start here |
 | `omni_hybrid_sde` | the same integrator with SDE noise in the middle of the trajectory (`eta=0.5`) | when you want more variation between seeds |
 | `omni_hybrid_cfg_pp` | CFG++ guidance: the unconditional prediction becomes the noise estimate | normal-cfg models (cfg > 1), not distilled cfg-1 checkpoints |
-| `omni_hybrid_cfgpp_author_pref` | the author's everyday setting: CFG++, gamma churn at maximum, `eta=1`, per-pixel order gate | a preference, not a measured optimum — try it if you like the look |
 | `omni_hybrid_gap` | **experiment branch only**: CFG++ 1.0 with the contrast component at 60% and the hot tail flattened after 30% of the steps (`gap_parallel 0.6`, `gap_parallel_local 0.6`, `gap_local_start 0.3`) | the 6 MP Krea2 burn fix ([the experiment](docs/EXPERIMENT_GAP_SHAPING.md)); judged harmless at 1.4 MP and on MOSS, not part of a release |
 
 Steps, cfg, scheduler and denoise work exactly as they did before; the sampler
@@ -51,12 +50,14 @@ only replaces the step update.
 
 | node | use it for | returns |
 |---|---|---|
+| **Omni-Hybrid Sampler (simple)** | one dropdown: pick a named setting (`omni_hybrid`, `omni_hybrid_sde`, `omni_hybrid_cfg_pp`, `omni_hybrid_gap`) | `SAMPLER`, plus a `config` string of the resolved settings |
+| **Omni-Hybrid Sampler (advanced)** | every knob, no preset switch, for SamplerCustom / SamplerCustomAdvanced | `SAMPLER`, plus a `config` string |
 | **Omni-Hybrid KSampler (A/B)** | the whole sampling graph, plus a `variant` switch that flips between preset rows for A/B runs | `LATENT`, plus a `config` string (also printed) with the exact evaluation count |
-| **Omni-Hybrid Sampler (select)** | SamplerCustom / SamplerCustomAdvanced | `SAMPLER` |
 
-Both nodes expose the same knobs and the same tooltips; the difference is what a
-node is allowed to own — a SAMPLER object cannot own model, conditioning, latent,
-seed, steps, cfg, scheduler or denoise.
+The simple and advanced nodes build a SAMPLER object for SamplerCustom /
+SamplerCustomAdvanced; the A/B node owns the whole pipeline. The advanced node
+exposes exactly the A/B node's knobs minus the preset switch, so a setting found
+in one transfers to the other.
 
 ### A sane first run
 

@@ -48,9 +48,10 @@ from omni_sampler import omni_core  # noqa: E402
 from omni_sampler.omni_nodes import (  # noqa: E402
     _KNOB_SPECS,
     _KSAMPLER_ORDER,
-    _SELECT_ORDER,
+    _SELECT_ADVANCED_ORDER,
     OmniKSampler,
-    OmniSamplerSelect,
+    OmniSamplerSelectAdvanced,
+    OmniSamplerSelectSimple,
     _parse_eta_window,
     _resolve_sampler_options,
 )
@@ -85,7 +86,7 @@ def check(name, ok, detail=""):
 
 
 def _defaults():
-    select = OmniSamplerSelect.INPUT_TYPES()["required"]
+    select = OmniSamplerSelectAdvanced.INPUT_TYPES()["required"]
     ksam = OmniKSampler.INPUT_TYPES()["required"]
     return select, ksam
 
@@ -95,25 +96,35 @@ def test_parity():
     select_keys = list(select)
     ksam_knobs = [k for k in ksam if k not in KSAMPLER_IO]
 
-    check("select widget order has no duplicates", len(select_keys) == len(set(select_keys)))
+    check("advanced widget order has no duplicates",
+          len(select_keys) == len(set(select_keys)))
     check("ksampler widget order has no duplicates", len(list(ksam)) == len(set(ksam)))
-    check("same sampler knob set", set(select_keys) == set(ksam_knobs),
-          f"select-only={sorted(set(select_keys) - set(ksam_knobs))}, "
-          f"ksampler-only={sorted(set(ksam_knobs) - set(select_keys))}")
-    check("both nodes cover _KNOB_SPECS",
-          set(select_keys) == set(_KNOB_SPECS) == set(ksam_knobs))
-    check("select order list matches its widgets", select_keys == _SELECT_ORDER)
+    check("advanced exposes every sampler knob except the preset switch",
+          set(select_keys) == set(ksam_knobs) - {"variant"},
+          f"advanced-only={sorted(set(select_keys) - set(ksam_knobs))}, "
+          f"missing={sorted(set(ksam_knobs) - set(select_keys) - {'variant'})}")
+    check("the node classes cover every knob spec",
+          set(select_keys) | {"variant", "preset"} == set(_KNOB_SPECS),
+          f"missing={sorted(set(_KNOB_SPECS) - set(select_keys) - {'variant', 'preset'})}")
+    check("advanced order list matches its widgets", select_keys == _SELECT_ADVANCED_ORDER)
     check("ksampler order list matches its knobs", ksam_knobs == _KSAMPLER_ORDER)
-    check("only KSampler I/O keys added to the KSampler",
-          set(ksam) - set(select_keys) == KSAMPLER_IO)
+    check("only KSampler I/O keys and the preset switch are added to the KSampler",
+          set(ksam) - set(select_keys) == KSAMPLER_IO | {"variant"},
+          f"extra={sorted(set(ksam) - set(select_keys))}")
     check("variant options match AB_PRESETS",
-          list(select["variant"][0]) == list(omni_core.AB_PRESETS) + ["custom (use knobs)"],
-          f"options={list(select['variant'][0])}")
+          list(ksam["variant"][0]) == list(omni_core.AB_PRESETS) + ["custom (use knobs)"],
+          f"options={list(ksam['variant'][0])}")
+    simple = OmniSamplerSelectSimple.INPUT_TYPES()["required"]
+    check("simple node exposes only the preset", list(simple) == ["preset"],
+          f"widgets={list(simple)}")
+    check("preset options are the named settings",
+          list(simple["preset"][0]) == list(omni_core.VARIANTS),
+          f"options={list(simple['preset'][0])}")
 
 
 def test_positional_prefix():
     select, ksam = _defaults()
-    check("select widget order keeps the v1.5.1 prefix",
+    check("advanced widget order keeps the v1.5.1 prefix",
           list(select)[:len(V151_SELECT_ORDER)] == V151_SELECT_ORDER,
           f"prefix={list(select)[:len(V151_SELECT_ORDER)]}")
     check("ksampler widget order keeps the v1.5.1 prefix",
@@ -123,21 +134,23 @@ def test_positional_prefix():
 
 def test_defaults():
     select, ksam = _defaults()
-    for name in _SELECT_ORDER:
-        for node, req in (("select", select), ("ksampler", ksam)):
+    for name in _SELECT_ADVANCED_ORDER:
+        for node, req in (("advanced", select), ("ksampler", ksam)):
             entry = req[name]
             default = entry[1].get("default")
             if name == "eta_window":
                 ok = _parse_eta_window(default) == omni_core.DEFAULTS[name]
-            elif name == "variant":
-                ok = default in omni_core.AB_PRESETS or default == "custom (use knobs)"
             else:
                 ok = default == omni_core.DEFAULTS[name]
-            label = ("default is a valid preset: variant" if name == "variant"
-                     else f"default matches DEFAULTS: {name}")
-            check(f"{node} {label}", ok, f"widget={default!r}")
+            check(f"{node} default matches DEFAULTS: {name}", ok, f"widget={default!r}")
         check(f"both nodes default {name} identically",
               select[name][1].get("default") == ksam[name][1].get("default"))
+    check("ksampler variant default is a valid preset",
+          ksam["variant"][1].get("default") in omni_core.AB_PRESETS)
+    simple = OmniSamplerSelectSimple.INPUT_TYPES()["required"]
+    check("simple preset default is a valid name",
+          simple["preset"][1].get("default") in omni_core.VARIANTS,
+          f"widget={simple['preset'][1].get('default')!r}")
 
 
 def test_tooltips():
@@ -209,37 +222,44 @@ def _independent_expected(inputs):
 def test_select_wiring():
     select, _ = _defaults()
     inputs = {name: _sentinel(name, entry) for name, entry in select.items()}
-    sampler = OmniSamplerSelect().build(**inputs)[0]
+    sampler = OmniSamplerSelectAdvanced().build(**inputs)[0]
     emitted = dict(sampler.sampler_function.keywords)
     expected = _independent_expected(inputs)
-    check("select emits every knob into the SAMPLER",
+    check("advanced emits every knob into the SAMPLER",
           emitted == expected,
           f"missing={sorted(set(expected) - set(emitted))}, "
           f"extra={sorted(set(emitted) - set(expected))}")
-    check("select passes eta_window as a tuple", emitted.get("eta_window") == (0.2, 0.8),
+    check("advanced passes eta_window as a tuple", emitted.get("eta_window") == (0.2, 0.8),
           f"eta_window={emitted.get('eta_window')!r}")
     for name in ("churn_mode", "skip_every", "skip_order"):
-        check(f"select emits {name}", emitted.get(name) == inputs[name],
+        check(f"advanced emits {name}", emitted.get(name) == inputs[name],
               f"{name}={emitted.get(name)!r}")
-    again = dict(OmniSamplerSelect().build(**inputs)[0].sampler_function.keywords)
-    check("select: the same values reproduce the same record", again == emitted)
+    again = dict(OmniSamplerSelectAdvanced().build(**inputs)[0].sampler_function.keywords)
+    check("advanced: the same values reproduce the same record", again == emitted)
 
     default_inputs = {name: entry[1].get("default") for name, entry in select.items()}
-    default_sampler = OmniSamplerSelect().build(**default_inputs)[0]
+    default_sampler = OmniSamplerSelectAdvanced().build(**default_inputs)[0]
     default_emitted = dict(default_sampler.sampler_function.keywords)
     check("negative control: the sentinel build differs from the default build",
           default_emitted != emitted)
     check("default build keeps eta_window at the shipped default",
           default_emitted.get("eta_window") == omni_core.DEFAULTS["eta_window"])
 
-    preset_sampler = OmniSamplerSelect().build(
-        **{**inputs, "variant": "I: SDE eta 0.3", "eta": 0.0})[0]
-    check("select applies the preset row",
-          dict(preset_sampler.sampler_function.keywords).get("eta") == 0.3)
-    custom_sampler = OmniSamplerSelect().build(
-        **{**inputs, "variant": "custom (use knobs)", "eta": 0.0})[0]
-    check("select custom row keeps the knob value",
-          dict(custom_sampler.sampler_function.keywords).get("eta") == 0.0)
+
+def test_simple_wiring():
+    from omni_sampler.omni_nodes import OmniSamplerSelectSimple
+    for name, overrides in omni_core.VARIANTS.items():
+        sampler, config = OmniSamplerSelectSimple().build(preset=name)
+        kw = dict(sampler.sampler_function.keywords)
+        check(f"simple {name}: builds a KSAMPLER",
+              isinstance(sampler, comfy.samplers.KSAMPLER))
+        check(f"simple {name}: config names it", config.startswith(name + " |"), config)
+        for key, value in overrides.items():
+            check(f"simple {name}: applies {key}", kw.get(key) == value,
+                  f"{key}={kw.get(key)!r}")
+    bad = OmniSamplerSelectSimple().build(preset="does-not-exist")[0]
+    check("simple unknown preset falls back to the defaults",
+          dict(bad.sampler_function.keywords).get("cfg_pp") is False)
 
 
 class _FakeModel:
@@ -328,6 +348,7 @@ def main():
     test_tooltips()
     test_resolver()
     test_select_wiring()
+    test_simple_wiring()
     test_ksampler_wiring()
     print()
     if FAILS:
