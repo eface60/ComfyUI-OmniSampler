@@ -1604,16 +1604,16 @@ VARIANTS = {
         "eta": 1.0,
         "px_order": True,
     },
-    # Experimental (docs/EXPERIMENT_GAP_SHAPING.md): CFG++ with the low-frequency
-    # guidance band moved back to the unconditional prediction and the delta
-    # magnitude capped.  These values are the experiment's starting point, not a
-    # measured optimum; the release names keep their shipped behaviour.
+    # Experimental (docs/EXPERIMENT_GAP_SHAPING.md): CFG++ with the contrast
+    # component at 60%, the hot tail flattened after 30% of the steps.  This is
+    # the tuned setting the author judged harmless at 1.4 MP and on MOSS, and
+    # effective at Krea2 6 MP.  It is the T row.
     "omni_hybrid_gap": {
         "cfg_pp": True,
         "cfg_pp_strength": 1.0,
-        "gap_lf": 0.05,
-        "gap_lf_keep": 0.0,
-        "gap_cap": 0.2,
+        "gap_parallel": 0.6,
+        "gap_parallel_local": 0.6,
+        "gap_local_start": 0.3,
     },
 }
 

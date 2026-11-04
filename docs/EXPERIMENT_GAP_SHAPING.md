@@ -271,6 +271,37 @@ does. Any prompt-derived prediction of *burn behaviour* is tuning against noise
 there -- which closes that idea for the relief knobs, and leaves guidance
 strength (adherence) as the only axis a prompt prior could plausibly improve.
 
+## Labeling pass (author's eye, three pairs)
+
+Same seed within a pair, 12 steps, `simple`, the fox prompt. A/B rows: `F`
+(CFG++ 1.0, no relief), `T` (the tuned 0.6/0.6/0.3), `U` (parity tail,
+0.6/0.45/0.3), `V` (the T relief without CFG++).
+
+| pair | comparison | verdict |
+|---|---|---|
+| 1 | Krea2 1024x1408, `F` vs `T` | "totally fine. yes there are differences, but they're mostly in the realm of difference is noise" |
+| 2 | MOSS 2048x2944, plain vs `V`, 12 steps | did not resolve at 12 steps; the relief is not inert, and no contrast is lost |
+| 2a | MOSS at a resolved size | "minor noise/image difference, perhaps a very bit softer / seemingly lower cfg. nothing worth adding exceptions for" |
+| 3 | Krea2 2048x2944, `T` vs `U` | "difference in noise, slight loss of structure on U? no difference in burn effect" |
+
+What this settles:
+
+* **No resolution or model gate.** The relief is perceptually inert wherever
+  there is no burn -- on a distilled model at 1.4 MP and on a non-distilled model
+  at a resolved size -- so the "gate it to large sizes" idea is dropped. One
+  default, no exceptions.
+* **The tail depth is not critical.** Flattening the tail to zero (`T`) and
+  flattening it only to the median push (`U`) are indistinguishable in burn
+  control, with a hint that `U` is slightly worse structurally. `T` stays.
+* **`hf` is a grain proxy, not a contrast one.** At 1.4 MP the relief moves `hf`
+  by -27%, which the eye reads as a noise difference, not a loss of contrast.
+  The mechanism is therefore closer to "removes the guidance's local grain" than
+  "lowers contrast", and the image metric should be described that way.
+* **It is safe as an opt-in and plausible as a default.** Harmless where there is
+  no burn, effective at Krea2 6 MP. It stays opt-in (`omni_hybrid_gap`, row `T`)
+  until it has been judged on more checkpoints -- but the "does it hurt normal
+  runs" question is answered: no.
+
 ## Sensors: what the sampler can measure about itself
 
 All three are relative, because the sweep showed no absolute threshold transfers

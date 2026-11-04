@@ -59,6 +59,15 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   (feed-forward start from `rev`, amount from `oor` against a plain-run baseline,
   per-pixel phase later) are in
   [docs/EXPERIMENT_GAP_SHAPING.md](docs/EXPERIMENT_GAP_SHAPING.md#sensors-what-the-sampler-can-measure-about-itself).
+* **Labeling pass on the relief (author's eye)**: harmless at 1.4 MP on Krea2
+  ("difference is noise"), harmless at a resolved size on MOSS ("nothing worth
+  adding exceptions for"), and no burn-control difference between flattening the
+  hot tail fully and flattening it only to the median push. So: no resolution or
+  model gate, the tuned `0.6/0.6/0.3` stays, and the metric it moves (`hf`,
+  -27% at 1.4 MP) is a *grain* proxy rather than a contrast one -- the eye reads
+  it as noise. `omni_hybrid_gap` now registers that setting instead of the
+  abandoned low-frequency/cap pair. A/B rows `T` (author), `U` (parity tail),
+  `V` (relief without CFG++, for plain cfg > 1 runs).
 * **Measurement: the guidance gap does not grow with resolution.** A sweep of
   Krea2 turbo (cfg 1), MOSS base (cfg 3.5) and Anima base 1.0 (cfg 4) over
   0.26-6.03 MP, 12 steps, one prompt/seed, `gap_stats` only (no image change):
