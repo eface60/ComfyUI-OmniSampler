@@ -25,6 +25,7 @@ Arms (docs/EXPERIMENT_GAP_SHAPING.md says what each one answers):
     cap      CFG++ + gap_cap 0.2                  (bounded overshoot)
     hf_cap   CFG++ + both                         (the omni_hybrid_gap preset)
     project  CFG++ + gap_parallel 0.0             (contrast component removed)
+    local    CFG++ + gap_parallel_local 0.6       (contrast relieved on the hot tail)
     cfg2     CFG++ at cfg 2                       (the cfgpp_check calibration arm)
 """
 
@@ -70,6 +71,7 @@ ARMS = {
     "cap": ({**CFGPP, "gap_cap": 0.2}, 1.0),
     "hf_cap": ({**CFGPP, "gap_lf": 0.05, "gap_lf_keep": 0.0, "gap_cap": 0.2}, 1.0),
     "project": ({**CFGPP, "gap_parallel": 0.0}, 1.0),
+    "local": ({**CFGPP, "gap_parallel_local": 0.6}, 1.0),
     "cfg2": (dict(CFGPP), 2.0),
 }
 

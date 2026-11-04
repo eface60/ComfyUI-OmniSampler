@@ -150,6 +150,7 @@ space, in the post-CFG hook:
 | `gap_lf` | remove the low-frequency band of the delta (band width as a fraction of the short side); `gap_lf_keep` keeps a fraction of it |
 | `gap_cap` | per-pixel cap `|delta| <= cap * |uncond|`, direction preserved |
 | `gap_parallel` | keep that fraction of the delta's component along the conditional prediction (APG-style at 0) |
+| `gap_parallel_local` | the same, per pixel and only on the hot tail: remove up to that fraction of the contrast push in the top decile of the step's own push distribution (the PD-AOS self-normalisation, applied to the delta) |
 
 Applied in the order project -> split -> cap. The hook receives a denoised
 prediction on every model family, so the same code covers eps and flow models,
@@ -159,20 +160,23 @@ noise). No extra model call.
 
 ## What is still worth testing
 
-1. **`gap_parallel 0` (APG) at 6 MP.** The only knob here that targets the
-   saturation direction rather than tone or magnitude: it removes the component
-   of the delta along the conditional prediction, which is the part that scales
-   it up. One render decides it -- if Krea2 still burns with that component
-   removed, guidance itself is the burn and this branch is closed.
-2. **Plain at 6 MP** (no guidance at all). If it does not burn, the honest
-   trade-off is "artifacts without guidance, burn with it" and the workflow
-   question becomes which artifact is cheaper; if it burns too, the artifacts are
-   out of distribution and no sampler-side change can fix them.
+1. **`gap_parallel_local` (local APG) at 6 MP.** The author's 6 MP run with
+   `gap_parallel 0` (the whole contrast component removed) fixed the burn, kept
+   the detail and washed the frame grey -- so the contrast lives in that
+   component and a binary removal is too much. The local version removes it only
+   in the top decile of each step's own per-pixel contrast push, which is the
+   one idea worth borrowing from PD-AOS's local fields (a self-normalised
+   per-pixel quantity, no absolute threshold). `tools/gap_shape_bench.py` has the
+   `local` arm; `R: gap local APG (0.6)` is the A/B row. This is the live
+   candidate, and everything else in this branch is closed.
+2. **Plain at 6 MP** (no guidance at all). The author reports it is "decent" but
+   still on the over-burned side; if it burns too, the model itself is
+   over-contrast at that size and the local gate is the only thing that can
+   subtract contrast without removing the structure.
 3. **Two-stage workflow** instead of 6 MP native: base at 1024x1408 with CFG++
    (known good), latent upscale, then a *plain* `cfg 1` pass at 0.35-0.5 denoise
    at 6 MP. The detail pass has a short trajectory (little guidance) and, being
-   plain, adds none -- which is the only combination this data leaves open for a
-   distilled checkpoint.
+   plain, adds none.
 
 ## How to run
 

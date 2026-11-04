@@ -35,6 +35,20 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   demonstration through ComfyUI's real post-CFG hook) and
   `tools/gap_shape_bench.py` (the real-model matrix at a chosen resolution).
   The case and what would falsify it: [docs/EXPERIMENT_GAP_SHAPING.md](docs/EXPERIMENT_GAP_SHAPING.md).
+* **`gap_parallel_local`**: the local (per-pixel) form of the contrast
+  projection. The author's 6 MP Krea2 test with the global `gap_parallel 0`
+  removed the burn and washed the frame grey, so the contrast lives in that
+  component but a binary removal is too much; the local gate removes it only
+  where the step's own per-pixel contrast push `delta . cond / ||cond||^2` sits
+  in the top decile of that step's distribution, with a smooth edge, leaving
+  every pixel under the tail untouched. It borrows PD-AOS's one transferable
+  idea -- a per-pixel quantity normalised against a reference measured from the
+  run itself, so no absolute threshold is needed (which the cross-model sweep
+  shows is the only kind that can work) -- not its implementation, whose own
+  modulation measured 0.25-0.45% of one step term. A/B row
+  `R: gap local APG (0.6)`. Invariants verified in `tools/gap_shape_check.py`
+  (uniform push leaves the gate at zero, the hotspot fires it, scale-free,
+  `local=0` bit-identical, `cond == uncond` no-op); unmeasured on a real model.
 * **Measurement: the guidance gap does not grow with resolution.** A sweep of
   Krea2 turbo (cfg 1), MOSS base (cfg 3.5) and Anima base 1.0 (cfg 4) over
   0.26-6.03 MP, 12 steps, one prompt/seed, `gap_stats` only (no image change):

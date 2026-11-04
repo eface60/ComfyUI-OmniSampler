@@ -466,6 +466,12 @@ def _apply_cfg_map(den, uncond, scale, cmap):
 # Every knob is neutral at its default (0, 0, 0, 1), and a fully neutral set
 # installs no hook at all, so "off" is bit-identical to the sampler without it.
 _GAP_EPS = 1e-8
+# Width of the local gate in units of the reference push: a pixel pushing 35%
+# harder than the reference gets the full local relief.
+_GAP_LOCAL_SOFT = 0.35
+# Where the gate starts: the top tenth of the image's contrast push.  This is a
+# tolerance (how much of the frame may be relieved), not a strength.
+_GAP_LOCAL_TAIL = 0.90
 
 
 def _gap_4d(t):
@@ -507,10 +513,41 @@ def _gap_project(delta, cond, keep):
     it up or down, i.e. the contrast/exposure part of the guidance; the
     orthogonal component carries the prompt-specific structure.  ``keep = 1``
     leaves the delta untouched, ``0`` removes the parallel part (APG-style).
+    ``keep`` may be a scalar or a per-pixel [B,1,H,W] map (see
+    ``_gap_local_gate``).
     """
     denom = cond.pow(2).sum(dim=1, keepdim=True).clamp_min(_GAP_EPS)
     par = (delta * cond).sum(dim=1, keepdim=True) / denom * cond
-    return par * float(keep) + (delta - par)
+    return par * keep + (delta - par)
+
+
+def _gap_local_gate(delta, cond, softness=_GAP_LOCAL_SOFT, tail=_GAP_LOCAL_TAIL):
+    """Per-pixel gate that fires where the contrast push is locally excessive.
+
+    Borrowed from PD-AOS's local fields, whose one transferable idea is the
+    *normalisation*: no absolute threshold, a per-pixel quantity compared against
+    a reference measured from the run itself, and a smooth gate instead of a
+    mask.  Here the quantity is the signed relative push of the parallel
+    component, ``(delta . cond) / ||cond||^2`` (positive = the guidance is
+    pushing this pixel brighter / more contrast), and the reference is the
+    ``tail`` quantile of that push over the image at this step.
+
+    A *tail* reference rather than a mean or a block mean: a block cannot see a
+    region that is uniformly pushed (its mean rises with it), and a whole-image
+    excess is the job of the global ``gap_parallel``.  What this catches is the
+    pixels pushing hardest relative to the rest of the frame -- the highlights
+    that clip -- while every pixel under the tail is left untouched.
+
+    Returns ``(gate, ref)`` with gate in [0, 1] and ref the quantile used.
+    """
+    denom = cond.pow(2).sum(dim=1, keepdim=True).clamp_min(_GAP_EPS)
+    push = (delta * cond).sum(dim=1, keepdim=True) / denom
+    q = torch.quantile(push.reshape(push.shape[0], -1).float(), float(tail), dim=1)
+    q = q.view(-1, 1, 1, 1).to(push.dtype)
+    scale = q.abs().clamp_min(1e-6)
+    t = ((push - q) / (float(max(softness, 1e-3)) * scale)).clamp(0.0, 1.0)
+    gate = t * t * (3.0 - 2.0 * t)
+    return _blur_mask(gate), float(q.mean())
 
 
 def _gap_cap(delta, uncond, cap):
@@ -520,7 +557,8 @@ def _gap_cap(delta, uncond, cap):
     return delta * scale, scale
 
 
-def shape_gap(delta, uncond, cond=None, lf=0.0, lf_keep=0.0, cap=0.0, parallel=1.0):
+def shape_gap(delta, uncond, cond=None, lf=0.0, lf_keep=0.0, cap=0.0, parallel=1.0,
+              local=0.0):
     """Shape a guidance delta: project -> split -> cap, per pixel.
 
     ``lf`` is the low-pass band width as a fraction of the latent's short side
@@ -529,8 +567,11 @@ def shape_gap(delta, uncond, cond=None, lf=0.0, lf_keep=0.0, cap=0.0, parallel=1
     conditional prediction to the unconditional one: tone from u, structure from
     c.  ``cap`` bounds the per-pixel delta to that multiple of the local
     unconditional magnitude.  ``parallel`` keeps that fraction of the delta's
-    component along c (1 = unchanged).  Returns ``(delta, info)`` with the mean
-    applied cap scale in ``info`` when the cap fired.
+    component along c (1 = unchanged).  ``local`` additionally removes up to that
+    fraction of the parallel component, but only where the guidance is locally
+    excessive (``_gap_local_gate``): full contrast where it is normal, relief
+    where it would burn.  Returns ``(delta, info)`` with the mean applied cap
+    scale and local gate in ``info`` when either fired.
     """
     d4, restore = _gap_4d(delta)
     if d4 is None:
@@ -540,8 +581,16 @@ def shape_gap(delta, uncond, cond=None, lf=0.0, lf_keep=0.0, cap=0.0, parallel=1
     dtype = d4.dtype
     d = d4.float()
     info = {}
-    if parallel < 1.0 and c4 is not None:
-        d = _gap_project(d, c4.float(), parallel)
+    if (parallel < 1.0 or local > 0.0) and c4 is not None:
+        if local > 0.0:
+            gate, ref = _gap_local_gate(d, c4.float())
+            keep = (float(parallel) - float(local) * gate).clamp(0.0, 1.0)
+            info["local_mean"] = float(gate.mean())
+            info["local_frac"] = float((gate > 0.5).float().mean())
+            info["local_ref"] = ref
+        else:
+            keep = float(parallel)
+        d = _gap_project(d, c4.float(), keep)
     if lf > 0.0 and lf_keep < 1.0:
         d = d - (1.0 - float(lf_keep)) * _gap_lowpass(d, lf)
     if cap > 0.0 and u4 is not None:
@@ -727,6 +776,7 @@ def sample_omni(
     gap_lf_keep=0.0,
     gap_cap=0.0,
     gap_parallel=1.0,
+    gap_parallel_local=0.0,
     gap_stats=False,
 ):
     """Unified exponential-integrator sampler (see module docstring).
@@ -765,14 +815,18 @@ def sample_omni(
       lowest-gap region keeps ``cfg_map_floor`` of it.  It needs cfg > 1 (there
       is no unconditional prediction otherwise) and is disabled with CFG++.
 
-    ``gap_lf``, ``gap_lf_keep``, ``gap_cap`` and ``gap_parallel`` shape the
-    guidance delta (the conditional minus the unconditional prediction) in x0
-    space.  That delta is the same object for both model families and for every
-    guidance path -- plain sampling at cfg > 1, cfg = 1 with the unconditional
-    pass forced, and CFG++ -- so one shaping layer covers all of them.  The
-    defaults (0, 0, 0, 1) are neutral and install no hook, so "off" is
-    bit-identical to the sampler without the feature; see
-    docs/EXPERIMENT_GAP_SHAPING.md for why the knobs exist.
+    ``gap_lf``, ``gap_lf_keep``, ``gap_cap``, ``gap_parallel`` and
+    ``gap_parallel_local`` shape the guidance delta (the conditional minus the
+    unconditional prediction) in x0 space.  That delta is the same object for
+    both model families and for every guidance path -- plain sampling at
+    cfg > 1, cfg = 1 with the unconditional pass forced, and CFG++ -- so one
+    shaping layer covers all of them.  ``gap_parallel_local`` is the local
+    variant of ``gap_parallel``: it removes the contrast component only where
+    the guidance is locally excessive, with the "excessive" reference measured
+    per step from the run itself (no absolute threshold).  The defaults
+    (0, 0, 0, 1, 0) are neutral and install no hook, so "off" is bit-identical
+    to the sampler without the feature; see docs/EXPERIMENT_GAP_SHAPING.md for
+    why the knobs exist and what the cross-model sweep measured.
 
     ``gap_stats`` records the cond/uncond gap per step (``rms_ratio``,
     ``lf_share``, ``par_share``) in ``LAST_STATS`` without changing the output.
@@ -830,13 +884,19 @@ def sample_omni(
     gap_lf_keep = min(max(float(gap_lf_keep), 0.0), 1.0)
     gap_cap = max(float(gap_cap), 0.0)
     gap_parallel = min(max(float(gap_parallel), 0.0), 1.0)
+    gap_parallel_local = min(max(float(gap_parallel_local), 0.0), 1.0)
     gap_stats = bool(gap_stats)
     gap_shape_on = ((gap_lf > 0.0 and gap_lf_keep < 1.0)
-                    or gap_cap > 0.0 or gap_parallel < 1.0)
+                    or gap_cap > 0.0 or gap_parallel < 1.0
+                    or gap_parallel_local > 0.0)
     gap_active = gap_shape_on or gap_stats
     gap_series = []
     gap_seen = 0
     gap_skipped = 0
+    gap_local_sum = 0.0
+    gap_local_frac_sum = 0.0
+    gap_local_steps = 0
+    gap_local_ref = None
     gap_cap_sum = 0.0
     gap_cap_steps = 0
     gap_reason = None
@@ -849,6 +909,7 @@ def sample_omni(
     if cfgpp_active or cfg_map or gap_active:
         def post_cfg_function(args):
             nonlocal uncond_denoised, gap_seen, gap_skipped, gap_cap_sum, gap_cap_steps
+            nonlocal gap_local_sum, gap_local_frac_sum, gap_local_steps, gap_local_ref
             u = args.get("uncond_denoised")
             den = args["denoised"]
             if u is not None:
@@ -889,12 +950,20 @@ def sample_omni(
                 m = gap_metrics(delta, u, c, band)
             if gap_shape_on:
                 shaped, info = shape_gap(delta, u, c, gap_lf, gap_lf_keep,
-                                         gap_cap, gap_parallel)
+                                         gap_cap, gap_parallel, gap_parallel_local)
                 if "cap_scale" in info:
                     gap_cap_sum += info["cap_scale"]
                     gap_cap_steps += 1
                     if m is not None:
                         m["cap_scale"] = info["cap_scale"]
+                if "local_mean" in info:
+                    gap_local_sum += info["local_mean"]
+                    gap_local_frac_sum += info["local_frac"]
+                    gap_local_steps += 1
+                    gap_local_ref = info["local_ref"]
+                    if m is not None:
+                        m["local_mean"] = info["local_mean"]
+                        m["local_frac"] = info["local_frac"]
                 den = u + shaped
             if m is not None:
                 gap_series.append((sigma_now, m))
@@ -1302,6 +1371,13 @@ def sample_omni(
             "gap_lf_keep": round(float(gap_lf_keep), 4),
             "gap_cap": round(float(gap_cap), 4),
             "gap_parallel": round(float(gap_parallel), 4),
+            "gap_parallel_local": round(float(gap_parallel_local), 4),
+            "gap_local_steps": int(gap_local_steps),
+            "gap_local_mean": (round(gap_local_sum / gap_local_steps, 5)
+                               if gap_local_steps else None),
+            "gap_local_frac": (round(gap_local_frac_sum / gap_local_steps, 5)
+                               if gap_local_steps else None),
+            "gap_local_ref": (round(float(gap_local_ref), 6) if gap_local_ref is not None else None),
             "gap_steps": int(len(gap_series)),
             "gap_seen": int(gap_seen),
             "gap_skipped": int(gap_skipped),
@@ -1370,6 +1446,7 @@ DEFAULTS = dict(
     gap_lf_keep=0.0,
     gap_cap=0.0,
     gap_parallel=1.0,
+    gap_parallel_local=0.0,
     gap_stats=False,
 )
 
@@ -1404,6 +1481,13 @@ AB_PRESETS = {
     "N: gap HF (5%)": {"gap_lf": 0.05, "gap_lf_keep": 0.0},
     "O: gap cap 0.2": {"gap_cap": 0.2},
     "P: gap HF + cap": {"gap_lf": 0.05, "gap_lf_keep": 0.0, "gap_cap": 0.2},
+    # Local APG: CFG++ 1.0 with the contrast component relieved only where the
+    # guidance is locally excessive.  The arm for the 6 MP burn.
+    "R: gap local APG (0.6)": {
+        "cfg_pp": True,
+        "cfg_pp_strength": 1.0,
+        "gap_parallel_local": 0.6,
+    },
     # Stats only: the output is unchanged, but the node prints the per-step
     # cond/uncond gap (at cfg = 1 this forces the unconditional pass, 2x batch).
     "Q: gap probe (no shaping)": {"gap_stats": True},

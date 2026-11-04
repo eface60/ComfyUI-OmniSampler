@@ -83,7 +83,8 @@ _KNOB_SPECS = {
                 "px_order on (the registered author-preference name); "
                 "N: gap HF (5%) = gap_lf 0.05; O: gap cap 0.2 = gap_cap 0.2; "
                 "P: gap HF + cap = both; Q: gap probe (no shaping) = gap_stats on "
-                "(experimental guidance-gap shaping, docs/EXPERIMENT_GAP_SHAPING.md). "
+                "(experimental guidance-gap shaping, docs/EXPERIMENT_GAP_SHAPING.md); "
+                "R: gap local APG (0.6) = cfg_pp on, strength 1.0, gap_parallel_local 0.6. "
                 "A preset overrides only the knobs it names; custom (use knobs) "
                 "uses every knob as set."
             ),
@@ -517,6 +518,28 @@ _KNOB_SPECS = {
             ),
         },
     ),
+    "gap_parallel_local": (
+        "FLOAT",
+        {
+            "default": DEFAULTS["gap_parallel_local"],
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05,
+            "round": False,
+            "tooltip": (
+                "Experimental: local version of gap_parallel. Removes up to this "
+                "fraction of the contrast component of the guidance, but only in "
+                "the pixels pushing hardest: the reference is the 90th percentile "
+                "of that step's own per-pixel contrast push (delta . cond / "
+                "||cond||^2), so the top tenth of the frame gets relief and "
+                "everything under it is left untouched -- no absolute threshold, "
+                "and the same value behaves the same at 1024 and 2048. 0 = off "
+                "(identical to gap_parallel), 0.6 = strong relief on the hot tail. "
+                "Needs a conditional prediction. Borrowed from PD-AOS's "
+                "local-field normalisation; unmeasured on a real model."
+            ),
+        },
+    ),
     "gap_stats": (
         "BOOLEAN",
         {
@@ -607,7 +630,8 @@ _SELECT_ORDER = _V151_SELECT_ORDER + [
     "churn_mode", "skip_every", "skip_order", "variant", "corrector_cfgpp",
     # Experimental guidance-gap shaping (docs/EXPERIMENT_GAP_SHAPING.md).
     # Appended last so every saved workflow keeps its positional values.
-    "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_stats",
+    "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_parallel_local",
+    "gap_stats",
 ]
 
 _V151_KSAMPLER_ORDER = [
@@ -618,7 +642,8 @@ _V151_KSAMPLER_ORDER = [
 ]
 _KSAMPLER_ORDER = _V151_KSAMPLER_ORDER + [
     "eta_window", "corrector_cfgpp",
-    "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_stats",
+    "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_parallel_local",
+    "gap_stats",
 ]
 
 
@@ -802,6 +827,7 @@ class OmniKSampler:
             for key, label in (("gap_rms_ratio_mean", "rms"),
                                ("gap_lf_share_mean", "lf"),
                                ("gap_par_share_mean", "par"),
+                               ("gap_local_mean", "local"),
                                ("gap_cap_mean", "capx")):
                 if st.get(key) is not None:
                     bits.append(f"{label} {st[key]:.2f}")

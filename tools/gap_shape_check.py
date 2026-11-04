@@ -158,7 +158,7 @@ def test_noop_cond_eq_uncond():
     plain = run(GapToy(cfg=1.0, delta=torch.zeros(2, 4, 32, 32)), sig, x, corrector="none")
     every = run(GapToy(cfg=1.0, delta=torch.zeros(2, 4, 32, 32)), sig, x, corrector="none",
                 cfg_pp=True, cfg_pp_strength=1.0, gap_lf=0.05, gap_lf_keep=0.0,
-                gap_cap=0.2, gap_parallel=0.0)
+                gap_cap=0.2, gap_parallel=0.0, gap_parallel_local=0.6)
     check("CFG++ + shaping == plain sampling", rel(every, plain) < 1e-6,
           f"rel={rel(every, plain):.1e}")
     check("the hook really ran", last_stats().get("gap_seen", 0) == N,
@@ -279,12 +279,57 @@ def test_stats_discriminate():
           f"par={st_tone.get('gap_par_share_mean')}")
 
 
+def test_local_gate():
+    print("\n=== 6. local APG gate (borrowed from PD-AOS local fields) ===")
+    g = torch.Generator().manual_seed(5)
+    uni = torch.full((2, 4, 32, 32), 0.5)
+    cond = torch.ones_like(uni)
+    gate, ref = omni_core._gap_local_gate(uni, cond)
+    check("a uniform push leaves the gate at 0", float(gate.max()) < 1e-3,
+          f"max={float(gate.max()):.2e}")
+
+    hot = uni.clone()
+    hot[:, :, 8:16, 8:16] *= 4.0
+    gate, ref = omni_core._gap_local_gate(hot, cond)
+    inside = float(gate[:, :, 10:14, 10:14].mean())
+    outside = float(gate[:, :, :4, :4].mean())
+    check("the hotspot fires the gate", inside > 0.9, f"inside={inside:.3f}")
+    check("the rest stays shut", outside < 1e-3, f"outside={outside:.3f}")
+    gate2, _ = omni_core._gap_local_gate(hot * 2.0, cond * 2.0)
+    check("the gate is scale-free", float((gate2 - gate).abs().max()) < 1e-4)
+
+    # End to end: with parallel=1 and local=0.8, only the hotspot's contrast
+    # component may move; the rest of the frame keeps its push.
+    base = torch.randn(2, 4, 32, 32, generator=g) * 0.2
+    uncond = torch.randn(2, 4, 32, 32, generator=g) * 0.5
+    delta = base - base.mean(dim=(1, 2, 3), keepdim=True)
+    hot = delta.clone()
+    hot[:, :, 8:16, 8:16] += 3.0
+    cond = uncond + hot
+    out, info = omni_core.shape_gap(hot, uncond, cond, local=0.8)
+    par_before = (hot * cond).sum(dim=1)
+    par_after = (out * cond).sum(dim=1)
+    r_in = float(par_after[:, 8:16, 8:16].abs().mean()
+                 / par_before[:, 8:16, 8:16].abs().mean().clamp_min(1e-8))
+    r_out = float(par_after[:, :4, :4].abs().mean()
+                  / par_before[:, :4, :4].abs().mean().clamp_min(1e-8))
+    check("contrast relieved inside the hotspot", r_in < 0.6, f"ratio={r_in:.3f}")
+    check("contrast kept away from it", r_out > 0.95, f"ratio={r_out:.3f}")
+    check("info reports the gate", "local_mean" in info and "local_ref" in info,
+          str({k: round(v, 3) if isinstance(v, float) else v for k, v in info.items()}))
+
+    same, _ = omni_core.shape_gap(hot, uncond, cond, parallel=0.5, local=0.0)
+    baseline, _ = omni_core.shape_gap(hot, uncond, cond, parallel=0.5)
+    check("local=0 is bit-identical to the global projection", torch.equal(same, baseline))
+
+
 def main():
     test_neutral_identity()
     test_noop_cond_eq_uncond()
     test_algebra()
     test_tone_vs_structure()
     test_stats_discriminate()
+    test_local_gate()
     print()
     if FAILS:
         print(f"{len(FAILS)} CHECK(S) FAILED: {FAILS}")

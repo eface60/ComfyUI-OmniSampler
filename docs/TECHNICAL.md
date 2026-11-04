@@ -81,6 +81,7 @@ safe-fallback values, because their measurement is a caution, not a win; see the
 | `gap_lf_keep` | 0.0 | fraction of that band kept (damps the removal instead of removing it) |
 | `gap_cap` | 0.0 | per-pixel cap on the delta, as a multiple of the local unconditional magnitude (0 = off) |
 | `gap_parallel` | 1.0 | fraction of the delta's component along the conditional prediction kept (1 = unchanged, 0 = projected away) |
+| `gap_parallel_local` | 0.0 | experimental: remove up to this fraction of that contrast component, but only in the top tenth of the frame's per-pixel contrast push (PD-AOS-style self-normalised gate, no absolute threshold) |
 | `gap_stats` | false | record the per-step cond/uncond gap in `LAST_STATS` without changing the output; at cfg = 1 this forces the unconditional pass (2x batch) |
 
 The same A/B preset rows are available on both nodes through `variant`
@@ -368,13 +369,29 @@ measures cfg 1 at strength 1 as plain cfg ≈ 2.5 at 12 steps). On a distilled
 cfg-1 model that extra guidance is a burn; at strength 0.5 half of the gap goes
 into the noise estimate instead, which is where the artifacts come from.
 
-Four knobs rewrite the delta before it enters the step, in this order:
-projection (`gap_parallel`) → low-pass split (`gap_lf` / `gap_lf_keep`) → cap
-(`gap_cap`). Because every model family hands the post-CFG hook a denoised
+The knobs rewrite the delta before it enters the step, in this order:
+projection (`gap_parallel`, then the local gate `gap_parallel_local`) →
+low-pass split (`gap_lf` / `gap_lf_keep`) → cap (`gap_cap`). Because every model
+family hands the post-CFG hook a denoised
 prediction, the same code covers eps and flow models, plain `cfg > 1`, the
 forced-unconditional path at `cfg = 1`, and CFG++ (which then uses the shaped
 delta as its signal and the raw uncond as its noise). It adds no model call;
 the cost is the forced unconditional pass at `cfg = 1` that CFG++ already pays.
+
+`gap_parallel_local` is the local version of the projection, added after the
+author's 6 MP test: `gap_parallel 0` (remove the whole contrast component) fixes
+the burn and washes the frame grey, which says the contrast lives in that
+component and that a binary removal is too much. The local version removes the
+same component only where the step's own per-pixel push
+(`delta . cond / ||cond||^2`, positive = pushing brighter) sits in the top
+decile of that step's distribution, with a smooth gate; every pixel under the
+tail is untouched. That is the one transferable idea from PD-AOS's local fields
+-- a per-pixel quantity normalised by a reference measured from the run itself,
+so no absolute threshold is needed, which is exactly what the cross-model sweep
+says is impossible. PD-AOS's own implementation was audited and left out: its
+per-pixel modulation measured 0.25-0.45% of one step term and its own A/B could
+not resolve it ([PD_AOS_AUDIT.md](PD_AOS_AUDIT.md)). The gate here is a
+different signal and is **not measured on a real model yet**.
 
 Defaults are neutral and install no hook, so OFF is bit-identical. The knobs are
 also state-free: they depend only on the current prediction, so the
