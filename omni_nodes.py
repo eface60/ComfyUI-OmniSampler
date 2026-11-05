@@ -852,7 +852,12 @@ class OmniKSampler:
         )
 
         n = max(len(ks.sigmas) - 1, 1)
-        sk = int(opts.get("skip_every", 1))
+        cfgpp_on = (bool(opts.get("cfg_pp", False))
+                    and float(opts.get("cfg_pp_strength", DEFAULTS["cfg_pp_strength"])) > 0.0)
+        # sample_omni disables skipping under CFG++ (a skipped step would use a
+        # stale unconditional prediction as the noise estimate), so the estimate
+        # must not count skips that cannot happen.
+        sk = int(opts.get("skip_every", 1)) if not cfgpp_on else 1
         # exactly mirror sample_omni's skip conditions (protections included)
         evals = sum(
             1 for i in range(n)
@@ -869,8 +874,6 @@ class OmniKSampler:
             corr_steps += 1
         if corr in ("last", "first_last") and n >= 3:
             corr_steps += 1
-        cfgpp_on = (bool(opts.get("cfg_pp", False))
-                    and float(opts.get("cfg_pp_strength", DEFAULTS["cfg_pp_strength"])) > 0.0)
         if cfgpp_on and not opts.get("corrector_cfgpp", False):
             corr_steps = 0
         extra = corr_steps
@@ -889,6 +892,8 @@ class OmniKSampler:
         if (str(opts.get("integrator", "exp")).lower() == "ab"
                 and omni_core.LAST_STATS.get("integrator") == "exp"):
             effective += " | ab->exp"
+        if int(opts.get("skip_every", 1)) > 1 and cfgpp_on:
+            effective += " | skip->off (cfg++)"
         # Churn is the one knob whose effect depends on the schedule and the model
         # family (the gamma law can fire on 0 of n steps), so report what actually
         # ran rather than only the requested value.

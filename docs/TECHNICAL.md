@@ -152,7 +152,8 @@ toy at `px_order_tol=0.05`, 7.6e-2 relative deviation before the fix and 2.3e-7
 after.
 
 Verification: `tools/cfgpp_check.py` checks the match with `euler_cfg_pp`
-(1e-7 at cfg 1/2/4), the no-op invariant with `px_order` and `corrector_cfgpp`
+(≤1e-6 at cfg 1/2/4 on **both** families; the diverging cfg 7 arm is gated
+separately at 1e-3), the no-op invariant with `px_order` and `corrector_cfgpp`
 on, `strength=0 == plain`, `strength=1` reproduces the reference, and prints the
 effective-cfg table above.
 
@@ -480,9 +481,10 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 assertion:
 
 * `exact_step` reproduces the analytic trajectory for both families (1.5e-16),
-* `dx/dlambda = -beta x + alpha x0` holds on the exact trajectory (5e-5),
+* `dx/dlambda = -beta x + alpha x0` holds on the exact trajectory (1.3e-4 eps /
+  5e-5 flow, finite difference),
 * `sde_step(eta=0) == exact_step` and `eta=1` keeps `N(0, sigma_t^2)`
-  (var ratio 0.997/1.015),
+  (var ratio 0.997/1.015, asserted to 2.5%),
 * the quadrature kernel equals the closed form for eps (2e-14) and makes the
   step exact for `x0` linear in lambda in both families (3e-13),
 * the shipped sampler converges at first and second order (1.05 / 1.79-1.89),
@@ -502,7 +504,7 @@ bit-exact no-op; eps still evaluates at 20.7).
 [`tools/test_node.py`](../tools/test_node.py) checks that the names appear in the
 stock KSampler, KSamplerAdvanced and KSamplerSelect dropdowns, that
 `ksampler()` / `sampler_object()` resolve them, and that `KSAMPLER.sample()`
-(with the inpaint wrapper, noise scaling and callbacks) lands within 4-6% of the
+(with the inpaint wrapper, noise scaling and callbacks) lands within 4-6.5% of the
 analytic reference on both families.
 
 The rest of the harness is listed in [`tools/README.md`](../tools/README.md): the

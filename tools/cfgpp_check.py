@@ -95,7 +95,11 @@ def main():
                    corrector="none", lower_order_to_end=0)
         b = kds.sample_euler_cfg_pp(m, x.clone(), sig.clone(), extra_args={"model_options": {}, "seed": 0}, disable=True)
         d = rel(a, b)
-        check(f"cfg={w}", d < 1e-3, f"rel={d:.1e}")
+        # cfg 1-4 is the documented claim (measured 2.6e-7 .. 9.9e-7 on both
+        # families); cfg 7 is the diverging arm (measured 1.1e-4), so it gets a
+        # separate gate instead of loosening the claim for everyone.
+        gate = 2e-6 if w <= 4.0 else 1e-3
+        check(f"cfg={w}", d < gate, f"rel={d:.1e} gate={gate:g}")
 
     print("\n=== 2. no-op invariant: cond == uncond (corrector off for both) ===")
     for order in (1, 2):
@@ -104,7 +108,7 @@ def main():
         b = sample(m, sig, x, cfg_pp=True, cfg_pp_strength=1.0, order=order, corrector="none", eta=0.0,
                    lower_order_to_end=1)
         d = rel(b, a)
-        check(f"order={order}", d < 1e-5, f"rel={d:.1e}")
+        check(f"order={order}", d < 1e-6, f"rel={d:.1e}")
 
     m = SameCfg()
     c_off = sample(m, sig, x, cfg_pp=True, corrector="none")
@@ -124,7 +128,7 @@ def main():
         a = sample(m, sig, x, cfg_pp=False, **kw)
         b = sample(m, sig, x, cfg_pp=True, cfg_pp_strength=1.0, **kw)
         d = rel(b, a)
-        check(f"px_order={px} corrector={corr}", d < 1e-5, f"rel={d:.1e}")
+        check(f"px_order={px} corrector={corr}", d < 1e-6, f"rel={d:.1e}")
 
     m = CfgToy(cfg=2.0)
     a = sample(m, sig, x, cfg_pp=True, cfg_pp_strength=1.0, corrector="none")
@@ -162,6 +166,28 @@ def main():
             match = min(std, key=lambda k: rel(q, std[k]))
             line.append(f"cfg={w:g}->approx {match:.1f} (d={rel(q, cond_only):.3f})")
         print(f"    strength={strength:.1f}: " + "   ".join(line))
+
+    print("\n=== 5. family coverage: the same invariants on a flow model ===")
+    # The CFG++ step carries `alpha_t`, which is 1 for eps and 1 - sigma for a
+    # flow model, so the eps-only checks above cannot see a family-dependent
+    # defect.  Everything below is the same assertion, on the other family.
+    sig_f, x_f = setup(flow=True)
+    for w in (1.0, 2.0, 4.0):
+        m = CfgToy(flow=True, cfg=w)
+        a = sample(m, sig_f, x_f, cfg_pp=True, cfg_pp_strength=1.0, order=1, eta=0.0,
+                   corrector="none", lower_order_to_end=0)
+        b = kds.sample_euler_cfg_pp(m, x_f.clone(), sig_f.clone(),
+                                    extra_args={"model_options": {}, "seed": 0}, disable=True)
+        d = rel(a, b)
+        check(f"flow: matches euler_cfg_pp at cfg={w}", d < 1e-3, f"rel={d:.1e}")
+    for order in (1, 2):
+        m = SameCfg(flow=True)
+        a = sample(m, sig_f, x_f, cfg_pp=False, order=order, corrector="none", eta=0.0,
+                   lower_order_to_end=1)
+        b = sample(m, sig_f, x_f, cfg_pp=True, cfg_pp_strength=1.0, order=order,
+                   corrector="none", eta=0.0, lower_order_to_end=1)
+        d = rel(b, a)
+        check(f"flow: cond==uncond no-op at order={order}", d < 1e-5, f"rel={d:.1e}")
 
     print()
     if FAILS:

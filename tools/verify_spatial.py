@@ -223,7 +223,11 @@ def main():
         check("OFF is bit-identical to v1.4.2", torch.equal(a, b),
               "maxdiff %.3e" % float((a - b).abs().max()))
     else:
-        print("  [SKIP] baseline module unavailable (git show failed)")
+        # A skipped proof is not a passed proof: without the tag there is no
+        # baseline, so the "OFF is bit-identical to the previous release" claim
+        # is unverified and the run must not look green.
+        check("OFF is bit-identical to v1.4.2", False,
+              "baseline module unavailable (git show v1.4.2:omni_core.py failed)")
 
     # ---- 4. px_order reaches its site, and the no-op control ------------
     model = toy.ToyModel(toy.MixturePrior(dim=4))
@@ -232,8 +236,11 @@ def main():
     check("px_order with an infinite tolerance is bit-identical (negative control)",
           torch.equal(off, huge))
     stats = dict(core.LAST_STATS)
-    check("px_order stats stamp the run", stats.get("px_order") is True and stats.get("px_order_steps", 0) >= 0,
-          str(stats.get("px_order_steps")))
+    check("px_order stats stamp the run",
+          stats.get("px_order") is True
+          and stats.get("px_order_mean") is not None
+          and abs(float(stats["px_order_mean"]) - 1.0) < 1e-3,
+          "steps=%s mean=%s" % (stats.get("px_order_steps"), stats.get("px_order_mean")))
     on = core.sample_omni(model, x0.clone(), sig.clone(), order=2, px_order=True, px_order_tol=0.02)
     check("px_order reaches its site and changes the step", not torch.equal(off, on),
           "rel %.3e" % float((on - off).norm() / off.norm()))

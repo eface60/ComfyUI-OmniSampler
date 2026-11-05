@@ -1064,12 +1064,14 @@ def sample_omni(
         seed = extra_args.get("seed", None)
         if isinstance(seed, (int, float)):
             seed = int(seed)
-            # torchsde's BrownianTree feeds this to numpy's SeedSequence, which
-            # rejects negative integers. Linked seed nodes can supply them even
-            # though the widget has min=0, so normalise instead of crashing
-            # ("ValueError: expected non-negative integer").
+            # Two consumers with different domains: torchsde's BrownianTree feeds
+            # numpy's SeedSequence (rejects negatives), while default_noise_sampler
+            # feeds torch's generator (int64, and it raises "Overflow when
+            # unpacking long long" above 2**63-1). Linked seed nodes can supply
+            # negative values even though the widget has min=0, so normalise to a
+            # non-negative int that BOTH accept.
             if seed < 0:
-                seed = seed % (2 ** 64)
+                seed = seed % (2 ** 63)
         if noise_mode == "brownian" and positive and min(positive) > 0.0:
             try:
                 noise_sampler = BrownianTreeNoiseSampler(x, min(positive), max(positive), seed=seed, cpu=True)

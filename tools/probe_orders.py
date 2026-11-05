@@ -27,8 +27,9 @@ import torch
 from scipy.integrate import solve_ivp
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.environ.get("COMFY_DIR", r"G:\AI\comfy"))
 
-from omni_core import alpha_of, beta_of, half_log_snr
+from omni_core import alpha_of, beta_of, half_log_snr  # noqa: E402
 
 
 def kappa1(h):
@@ -164,9 +165,17 @@ def test_orders():
                     v = run_scheme(n, flow, order, warm=warm)
                     errs.append(abs(v - ref))
                 rate = math.log2(errs[0] / errs[-1]) / math.log2(8.0)
-                good = abs(rate - order) < 0.25
-                ok = ok and (good or warm)
-                print(f"  {'flow' if flow else 'eps '} order={order} warm={int(warm)} errs={[f'{e:.2e}' for e in errs]} rate={rate:.2f} {'OK' if good else 'BAD'}")
+                # Documented expectation: orders 1-2 reach their nominal rate from
+                # a cold start, order 3 only with a warm start, because the
+                # first-order start-up step dominates a fixed N-step schedule.
+                # That is why 3rd order was measured and not shipped, so the probe
+                # asserts it instead of marking it BAD.
+                expect = float(order) if (warm or order < 3) else 2.0
+                good = abs(rate - expect) < 0.25
+                ok = ok and good
+                print(f"  {'flow' if flow else 'eps '} order={order} warm={int(warm)} "
+                      f"errs={[f'{e:.2e}' for e in errs]} rate={rate:.2f} "
+                      f"expect={expect:.1f} {'OK' if good else 'BAD'}")
     print()
     return ok
 
@@ -176,5 +185,7 @@ if __name__ == "__main__":
     for h in (0.5, 1.0, 2.0):
         print(f"  h={h}: eps={kernel_shape(False, h):.2e} flow={kernel_shape(True, h):.2e}")
     print()
-    test_kappa()
-    test_orders()
+    ok_kappa = test_kappa()
+    ok_orders = test_orders()
+    # A convergence-order probe that prints BAD and exits 0 cannot gate anything.
+    raise SystemExit(0 if (ok_kappa and ok_orders) else 1)

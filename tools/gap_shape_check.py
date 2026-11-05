@@ -378,6 +378,25 @@ def test_corrector_is_not_a_step():
     check("gap_stats + corrector is still bit-identical", torch.equal(ref, plain))
 
 
+def test_eps_family():
+    print("\n=== 9. eps family: the neutral/ON contract is family-independent ===")
+    # shape_gap is a post-CFG transform and never sees alpha, so these checks are
+    # expected to pass on eps exactly as on flow -- which is the point: the docs
+    # claim "every model family", and until now only flow was exercised.
+    tone, tex = patterns()
+    delta = tone + 0.6 * tex
+    m = GapToy(cfg=2.0, delta=delta, flow=False)
+    sig, x = setup(m)
+    base = run(GapToy(cfg=2.0, delta=delta, flow=False), sig, x, corrector="none")
+    neutral = run(GapToy(cfg=2.0, delta=delta, flow=False), sig, x, corrector="none",
+                  gap_lf=0.0, gap_lf_keep=0.0, gap_cap=0.0, gap_parallel=1.0,
+                  gap_parallel_local=0.0)
+    check("eps: neutral knobs are bit-identical", torch.equal(base, neutral))
+    on = run(GapToy(cfg=2.0, delta=delta, flow=False), sig, x, corrector="none",
+             gap_lf=0.2)
+    check("eps: ON changes the step", not torch.equal(base, on))
+
+
 def main():
     test_neutral_identity()
     test_noop_cond_eq_uncond()
@@ -386,6 +405,7 @@ def main():
     test_stats_discriminate()
     test_local_gate()
     test_corrector_is_not_a_step()
+    test_eps_family()
     print()
     if FAILS:
         print(f"{len(FAILS)} CHECK(S) FAILED: {FAILS}")

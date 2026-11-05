@@ -104,6 +104,22 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 
 ### Fixed
 
+* **A negative seed still crashed on the white-noise path.** v1.4.2 normalised a
+  negative seed with `seed % 2**64` because numpy's `SeedSequence` (the Brownian
+  tree) rejects negatives, but `default_noise_sampler` hands the same value to
+  torch's generator, which is int64 and raises "Overflow when unpacking long
+  long" above `2**63-1`. So `noise_mode="white"` -- and any fallback from the
+  Brownian tree -- crashed for a linked negative seed. Normalised to `2**63`
+  instead, which both accept. Positive seeds are unchanged; a negative seed with
+  `eta > 0` now produces a different latent than v1.5.5, which is the point.
+  `tools/test_eta_seed.py` now proves the eta=0
+  "no noise sampler is built" claim with spies on both constructors, runs both
+  families, and exercises `noise_mode="white"`, which is how this surfaced.
+* **The A/B node's `evals` estimate ignored the CFG++ skip guard.** It counted
+  the steps `skip_every` would have skipped even when CFG++ forces every step to
+  evaluate, so a `skip_every=2` + `cfg_pp` run printed `evals=12/7`. The
+  estimate now uses the resolved skip behaviour and the config string reports
+  `skip->off (cfg++)`.
 * **Karras churn evaluated a flow model above its `sigma` domain.** A flow model
   is parameterised on `sigma < 1` (`alpha = 1 - sigma`), and step 0 of a full
   denoise already sits at `sigma_max = 1`, so `sigma_hat = 1.414` was noised for
@@ -212,6 +228,19 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 * The harness reads `COMFY_DIR`, `OMNI_WORK`, `PD_AOS_DIR` and `AFLOPS_OUT`
   instead of hard-coded absolute paths. The defaults are unchanged, so existing
   runs on the author's machine behave identically.
+
+* **The verification suite can fail again.** `probe_orders.py` exits non-zero
+  (and asserts the documented third-order start-up limitation instead of
+  printing `BAD` and exiting 0); `verify_spatial.py` treats a missing `v1.4.2`
+  baseline as a failure rather than a `[SKIP]`, and its `px_order` stamp check is
+  no longer vacuous; `test_node.py`'s `KSamplerSelect` introspection is a check,
+  not a warning; `test_node_parity.py` validates every widget default against
+  its own range, step and choices; `cfgpp_check.py` runs the `euler_cfg_pp`
+  equality and the `cond == uncond` no-op on flow models as well as eps;
+  `gap_shape_check.py` runs the neutral/ON contract on eps. Tolerance gates were
+  tightened to ~2-3x the measured values (`euler_cfg_pp` 1e-3 -> 2e-6 at
+  cfg <= 4, no-op 1e-5 -> 1e-6, KSampler end-to-end 12% -> 8%, ODE identity
+  2e-3 -> 3e-4, SDE marginal 5% -> 2.5%). All nine model-free checks pass.
 
 The default build is behaviorally unchanged: `corrector_cfgpp` is off, `order`
 defaults to 2, churn defaults to 0 and `final_extrapolate` to 0. The only

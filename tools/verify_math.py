@@ -107,7 +107,7 @@ def test_ode_identity():
         worst["flow" if flow else "eps"] = rel(dx, rhs)
     check(
         "dx/dlambda = -beta*x + alpha*x0_hat holds on the exact trajectory",
-        max(worst.values()) < 2e-3,
+        max(worst.values()) < 3e-4,
         f"rel residual eps={worst['eps']:.1e} flow={worst['flow']:.1e} (finite diff)",
     )
 
@@ -140,7 +140,7 @@ def test_sde_step():
         mean_dev = float(resid.mean(0).abs().max()) / s_t
         check(
             f"SDE eta=1 keeps N(0, sigma_t^2) marginal ({'flow' if flow else 'eps'})",
-            abs(var_ratio - 1.0) < 0.05 and mean_dev < 0.05,
+            abs(var_ratio - 1.0) < 0.025 and mean_dev < 0.03,
             f"var_ratio={var_ratio:.4f} mean/sigma={mean_dev:.4f}",
         )
 

@@ -341,10 +341,40 @@ def test_ksampler_wiring():
           dict(preset_sampler.sampler_function.keywords).get("eta") == 0.3)
 
 
+def test_defaults_valid():
+    """Every default must be legal for its own widget declaration.
+
+    ``test_defaults`` compares the widget default with ``DEFAULTS``, which is an
+    identity by construction (the widget *is* generated from DEFAULTS), so it
+    cannot catch a default outside its own range or off its step grid.  ComfyUI
+    clamps such a value silently, which makes the number shown in the UI a lie.
+    """
+    print("\n== widget defaults are legal for their own declaration ==")
+    for name, (kind, opts) in _KNOB_SPECS.items():
+        default = opts.get("default")
+        if isinstance(kind, list):
+            check(f"default is one of the widget choices: {name}",
+                  default in kind, f"default={default!r}")
+            continue
+        if kind not in ("INT", "FLOAT"):
+            continue
+        lo, hi = opts.get("min"), opts.get("max")
+        inside = isinstance(default, (int, float)) and lo <= default <= hi
+        check(f"default is inside [min, max]: {name}", inside,
+              f"default={default!r} range=[{lo}, {hi}]")
+        step = opts.get("step")
+        if inside and step:
+            off = (default - lo) / step
+            check(f"default is on the step grid: {name}",
+                  abs(off - round(off)) < 1e-6,
+                  f"default={default!r} min={lo} step={step}")
+
+
 def main():
     test_parity()
     test_positional_prefix()
     test_defaults()
+    test_defaults_valid()
     test_tooltips()
     test_resolver()
     test_select_wiring()

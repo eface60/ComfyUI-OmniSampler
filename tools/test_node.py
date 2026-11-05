@@ -82,7 +82,11 @@ def test_registration():
         for name in VARIANTS:
             check(f"KSamplerSelect dropdown contains {name}", name in opts)
     except Exception as exc:  # noqa: BLE001
-        print(f"[warn] could not introspect KSamplerSelect schema: {exc}")
+        # Not a warning: if the stock dropdown cannot be introspected, the
+        # registration claim for KSamplerSelect is unverified, and a green run
+        # must not hide that.
+        check("KSamplerSelect dropdown is introspectable", False,
+              f"{type(exc).__name__}: {exc}")
 
 
 def _default_kwargs(cls):
@@ -152,7 +156,7 @@ def test_end_to_end():
         rel = float((out - ref_x0).norm() / ref_x0.norm())
         check(
             f"KSAMPLER.sample end-to-end ({'flow' if flow else 'eps'}) is accurate",
-            rel < 0.12,
+            rel < 0.08,
             f"rel err={rel:.3e}",
         )
         check(
