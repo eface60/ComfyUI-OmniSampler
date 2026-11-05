@@ -225,12 +225,65 @@ def test_churn_flow_domain():
           f"max={max(me.seen):.4f} sigma_max={float(sige[0]):.4f}")
 
 
+def test_skip_disabled_under_cfgpp():
+    """skip_every + cfg_pp: a skipped step has no current unconditional prediction."""
+    print("\n=== skip_every x cfg_pp ===")
+    m, sig, x = setup(flow=True, n=12)
+    run(m, sig, x, skip_every=2, corrector="none")
+    st = dict(omni_core.LAST_STATS)
+    check("skip_every=2 really skips steps without CFG++", st.get("skipped", 0) > 0,
+          f"skipped={st.get('skipped')} calls={st.get('calls')}")
+    check("no skip reason without CFG++", st.get("skip_reason") is None,
+          f"skip_reason={st.get('skip_reason')}")
+
+    m2, sig2, x2 = setup(flow=True, n=12)
+    run(m2, sig2, x2, skip_every=2, cfg_pp=True, cfg_pp_strength=0.5, corrector="none")
+    st2 = dict(omni_core.LAST_STATS)
+    check("CFG++ disables skipping (stale u would be used)", st2.get("skipped") == 0,
+          f"skipped={st2.get('skipped')}")
+    check("and records why", st2.get("skip_reason") == "cfg_pp",
+          f"skip_reason={st2.get('skip_reason')}")
+
+    m3, sig3, x3 = setup(flow=True, n=12)
+    run(m3, sig3, x3, cfg_pp=True, cfg_pp_strength=0.5, corrector="none")
+    st3 = dict(omni_core.LAST_STATS)
+    check("CFG++ with skip requested costs what plain CFG++ costs",
+          st2.get("calls") == st3.get("calls"),
+          f"{st2.get('calls')} vs {st3.get('calls')}")
+    check("skip_every is reported", st2.get("skip_every") == 2,
+          f"skip_every={st2.get('skip_every')}")
+
+
+# Parameters of sample_omni that are plumbing, not knobs, so they are not in
+# DEFAULTS.  The four registered sampler names bake DEFAULTS in, which makes a
+# signature-only change silently alter what the stock dropdowns do.
+_PLUMBING = {"extra_args", "callback", "disable"}
+
+
+def test_defaults_match_signature():
+    """DEFAULTS and the sample_omni signature must not drift apart."""
+    import inspect
+
+    print("\n=== DEFAULTS x sample_omni signature ===")
+    params = {k: v.default for k, v in inspect.signature(omni_core.sample_omni).parameters.items()
+              if v.default is not inspect.Parameter.empty}
+    defaults = dict(omni_core.DEFAULTS)
+    missing = sorted(set(defaults) - set(params))
+    extra = sorted(set(params) - set(defaults) - _PLUMBING)
+    drift = sorted(k for k in defaults if k in params and params[k] != defaults[k])
+    check("every DEFAULTS key is a sample_omni parameter", not missing, f"missing={missing}")
+    check("sample_omni has no knob the node cannot see", not extra, f"extra={extra}")
+    check("DEFAULTS values equal the signature defaults", not drift, f"drift={drift}")
+
+
 def main():
     test_order_clamp()
     test_ab_uses_order()
     test_ab_churn_falls_back()
     test_final_extrapolate_sigmas()
     test_churn_flow_domain()
+    test_skip_disabled_under_cfgpp()
+    test_defaults_match_signature()
     print()
     if FAILS:
         print(f"{len(FAILS)} CHECK(S) FAILED: {FAILS}")

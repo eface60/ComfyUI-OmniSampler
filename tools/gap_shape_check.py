@@ -351,6 +351,33 @@ def test_local_gate():
           f"{late_steps} of {all_steps}")
 
 
+def test_corrector_is_not_a_step():
+    print("\n=== 8. the corrector's extra evaluation is a call, not a step ===")
+    # Regression: the post-CFG hook used to fire on the corrector's evaluation
+    # too, which put a duplicate sigma in gap_series, inflated every gap mean by
+    # ~10% and made `rev` dip at the same sigma.  The corrector is still a model
+    # call (calls = steps + corrector_steps) but it must not be a series entry.
+    tone, tex = patterns()
+    delta = tone + 0.6 * tex
+    sig, x = setup(GapToy(cfg=2.0, delta=delta))
+    ref = run(GapToy(cfg=2.0, delta=delta), sig, x, corrector="first", gap_stats=True)
+    st = last_stats()
+    check("the corrector ran exactly once", st.get("corrector_steps") == 1,
+          f"corrector_steps={st.get('corrector_steps')} calls={st.get('calls')}")
+    check("one call per step plus the corrector", st.get("calls") == N + 1,
+          f"calls={st.get('calls')} steps={st.get('steps')}")
+    check("one series entry per step", st.get("gap_steps") == N,
+          f"gap_steps={st.get('gap_steps')} steps={st.get('steps')}")
+    check("gap_seen counts steps, not calls", st.get("gap_seen") == N,
+          f"gap_seen={st.get('gap_seen')}")
+    sigmas = [round(s, 6) for s, _ in st.get("gap_series", [])]
+    check("no duplicate sigma in the series", len(sigmas) == len(set(sigmas)),
+          f"sigmas={sigmas}")
+    # The fix must not change what the sampler produces.
+    plain = run(GapToy(cfg=2.0, delta=delta), sig, x, corrector="first")
+    check("gap_stats + corrector is still bit-identical", torch.equal(ref, plain))
+
+
 def main():
     test_neutral_identity()
     test_noop_cond_eq_uncond()
@@ -358,6 +385,7 @@ def main():
     test_tone_vs_structure()
     test_stats_discriminate()
     test_local_gate()
+    test_corrector_is_not_a_step()
     print()
     if FAILS:
         print(f"{len(FAILS)} CHECK(S) FAILED: {FAILS}")

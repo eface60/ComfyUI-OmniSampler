@@ -939,6 +939,12 @@ def sample_omni(
     gap_reason = None
     uncond_denoised = None
     cfg_state = {"map": None, "cond": None, "uncond": None, "calls": 0}
+    # The corrector's extra evaluation also runs the model (and therefore the
+    # post-CFG hook) at the NEXT node's sigma.  It is a model call but not a
+    # trajectory step: counting it would put a duplicate sigma in gap_series,
+    # inflate every gap mean, and make `rev` dip (the two entries share a
+    # sigma).  The hook reads this flag; see docs/EXPERIMENT_GAP_SHAPING.md.
+    call_ctx = {"corrector": False}
     # strength 0 makes CFG++ exactly plain sampling (u is blended away), so the
     # hook -- and with it disable_cfg1_optimization, which forces the
     # unconditional pass at cfg=1 -- must not be installed at all.
@@ -949,6 +955,7 @@ def sample_omni(
             nonlocal gap_local_sum, gap_local_frac_sum, gap_local_steps, gap_local_ref
             u = args.get("uncond_denoised")
             den = args["denoised"]
+            is_corr = call_ctx["corrector"]
             if u is not None:
                 uncond_denoised = u
             if not (cfg_map or gap_active):
@@ -958,27 +965,29 @@ def sample_omni(
             # A map or a delta built from it would be meaningless (a zero
             # "uncond" turns the whole prediction into a delta), so refuse.
             if u is None or not bool(torch.any(u != 0)):
-                gap_skipped += 1
+                if not is_corr:
+                    gap_skipped += 1
                 return den
-            gap_seen += 1
+            if not is_corr:
+                gap_seen += 1
             try:
                 scale = float(args.get("cond_scale", 1.0))
             except (TypeError, ValueError):
                 scale = 1.0
             c = args.get("cond_denoised")
             if cfg_map and scale > 1.0 + 1e-6:
-                cfg_state["calls"] += 1
-                if u is not None:
+                if not is_corr:
+                    cfg_state["calls"] += 1
+                    if c is not None:
+                        cfg_state["cond"] = c.detach()
                     cfg_state["uncond"] = u.detach()
-                if c is not None:
-                    cfg_state["cond"] = c.detach()
                 den = _apply_cfg_map(den, u, scale, cfg_state["map"])
             if not gap_active:
                 return den
             delta = den - u
             m = None
             sigma_now = 0.0
-            if gap_stats:
+            if gap_stats and not is_corr:
                 try:
                     sigma_now = float(torch.as_tensor(args.get("sigma", 0.0)).reshape(-1)[0])
                 except (TypeError, ValueError):
@@ -995,12 +1004,12 @@ def sample_omni(
                     local_eff *= _gap_local_gain(frac_now, gap_local_start)
                 shaped, info = shape_gap(delta, u, c, gap_lf, gap_lf_keep,
                                          gap_cap, gap_parallel, local_eff)
-                if "cap_scale" in info:
+                if "cap_scale" in info and not is_corr:
                     gap_cap_sum += info["cap_scale"]
                     gap_cap_steps += 1
                     if m is not None:
                         m["cap_scale"] = info["cap_scale"]
-                if "local_mean" in info:
+                if "local_mean" in info and not is_corr:
                     gap_local_sum += info["local_mean"]
                     gap_local_frac_sum += info["local_frac"]
                     gap_local_steps += 1
@@ -1009,7 +1018,7 @@ def sample_omni(
                         m["local_mean"] = info["local_mean"]
                         m["local_frac"] = info["local_frac"]
                 den = u + shaped
-            if m is not None:
+            if m is not None and not is_corr:
                 # Sensors, measured on what the step will actually use.  `rev`
                 # is the model's own revision rate: high while it is still
                 # deciding structure, low once the frame has settled.  `oor` is
@@ -1105,6 +1114,15 @@ def sample_omni(
         and not cfgpp_active
         and float(s_churn) <= 0.0
     )
+    # NFE skipping needs a model call to exist.  CFG++'s noise estimate is the
+    # unconditional prediction captured by the hook on the CURRENT step, so on a
+    # skipped step it would be a stale u from an earlier sigma -- a wrong step,
+    # not a cheaper one.  CFG++ therefore evaluates every step, the same way it
+    # forces the exp integrator; the resolved behaviour is recorded in
+    # LAST_STATS["skip_reason"] and the A/B node reports it.
+    skip_reason = None
+    if int(skip_every) > 1 and cfgpp_active:
+        skip_reason = "cfg_pp"
     # The exp path keeps one previous x0 (hist_x0), so it has no third-order
     # history to consume.  Clamp it here, before _resolve_order, and record both
     # the request and the value in force.
@@ -1168,7 +1186,7 @@ def sample_omni(
         # ---- model evaluation (or epsilon extrapolation on a skipped step) ----
         skipped = False
         if (
-            int(skip_every) > 1
+            skip_reason is None
             and i > 0
             and sigma_t > 0.0
             and (i % int(skip_every)) != 0
@@ -1365,7 +1383,15 @@ def sample_omni(
         if do_corr:
             x_pred = advance(x0_eff, with_noise=False)
             u_before = uncond_denoised
-            x0_check = model(x_pred, sig_geo[i + 1] * s_in, **extra_args)
+            # Mark the extra evaluation so the post-CFG hook does not record it
+            # as a trajectory step (duplicate sigma, inflated gap means, a `rev`
+            # dip).  Shaping and the CFG map are still applied to its output, so
+            # the corrected prediction lives in the same space as x0_eff.
+            call_ctx["corrector"] = True
+            try:
+                x0_check = model(x_pred, sig_geo[i + 1] * s_in, **extra_args)
+            finally:
+                call_ctx["corrector"] = False
             n_calls += 1
             if cfgpp_active:
                 u_check_raw = uncond_denoised
@@ -1399,6 +1425,8 @@ def sample_omni(
         "calls": int(n_calls),
         "steps": int(n_steps),
         "skipped": int(n_skipped),
+        "skip_every": int(skip_every),
+        "skip_reason": skip_reason,
         "churn_steps": int(n_churn),
         "churn_capped": int(n_churn_capped),
         "corrector_steps": int(n_corr),
