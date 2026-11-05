@@ -271,6 +271,43 @@ def clamp_sigma(sigma: float, flow: bool) -> float:
     return max(sigma, 1e-30)
 
 
+def _churn_forward(x, sigma_s, sigma_hat, flow, s_noise, sign=1.0):
+    """Re-noise ``x`` from p(sigma_s) to p(sigma_hat): the exact forward step.
+
+    In (alpha, sigma) coordinates the forward process is
+
+        x_hat = r * x + sqrt(sigma_hat^2 - (r*sigma_s)^2) * z,
+        r = alpha_hat / alpha_s,
+
+    which reduces to k-diffusion's additive ``x + sqrt(sigma_hat^2 - sigma_s^2) z``
+    when ``alpha = 1`` (epsilon models), so the eps path is bit-identical.  For
+    flow models ``alpha = 1 - sigma`` and the additive form leaves the x0
+    component unscaled: the variance still comes out right (both forms give
+    sigma_hat^2) but the mean does not, and the step after the churn inherits
+    that bias.  Measured on a constant-x0 toy at eta = 1: mean deviation 7.2% of
+    sigma_t with the additive form, 0.2% with this one
+    (``tools/test_churn_eta.py``).
+
+    Returns ``(x, fired)``; ``fired`` is False when the move is degenerate
+    (sigma_hat <= sigma_s, or alpha_s <= 0, which a flow model reaches only at
+    sigma = 1 where the cap already suppresses churn).
+    """
+    if sigma_hat <= sigma_s:
+        return x, False
+    if flow:
+        a_s = 1.0 - sigma_s
+        a_h = 1.0 - sigma_hat
+        if a_s <= 1e-12:
+            return x, False
+        ratio = a_h / a_s
+        var = sigma_hat * sigma_hat - (ratio * sigma_s) ** 2
+    else:
+        ratio = 1.0
+        var = sigma_hat * sigma_hat - sigma_s * sigma_s
+    diff = s_noise * math.sqrt(max(0.0, var))
+    return ratio * x + sign * torch.randn_like(x) * diff, True
+
+
 def _eta_gate(frac: float, window, softness: float) -> float:
     """1 inside ``window``, smoothly 0 outside; ``frac`` is lambda progress."""
     lo, hi = window
@@ -1152,10 +1189,10 @@ def sample_omni(
                     sigma_eval = sigma_hat
                     # ppm subtracts the re-noise draw; matching its sign keeps
                     # seeds interchangeable with euler_gamma
-                    x = x - torch.randn_like(x) * (
-                        s_noise * math.sqrt(max(0.0, sigma_eval ** 2 - sigma_s ** 2))
-                    )
-                    n_churn += 1
+                    x, fired = _churn_forward(x, sigma_s, sigma_eval, flow, s_noise,
+                                              sign=-1.0)
+                    if fired:
+                        n_churn += 1
             else:
                 gamma = min(s_churn / max(n_steps, 1), 2 ** 0.5 - 1.0)
                 sigma_eval = sigma_s * (gamma + 1.0)
@@ -1174,10 +1211,9 @@ def sample_omni(
                     sigma_eval = raw[0]
                     n_churn_capped += 1
                 if gamma > 0.0 and sigma_eval > sigma_s:
-                    x = x + torch.randn_like(x) * (
-                        s_noise * math.sqrt(max(0.0, sigma_eval ** 2 - sigma_s ** 2))
-                    )
-                    n_churn += 1
+                    x, fired = _churn_forward(x, sigma_s, sigma_eval, flow, s_noise)
+                    if fired:
+                        n_churn += 1
 
         # churn moved the state to sigma_eval, so the step must start there
         # (comfy/k-diffusion use dt = sigma_next - sigma_hat for the same reason)

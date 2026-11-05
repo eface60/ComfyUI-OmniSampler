@@ -35,9 +35,14 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_cross_features.py
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_node.py
 & "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_node_parity.py
+& "$env:COMFY_DIR\venv\Scripts\python.exe" tools\verify_spatial.py
+& "$env:COMFY_DIR\venv\Scripts\python.exe" tools\gap_shape_check.py
+& "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_eta_seed.py
+& "$env:COMFY_DIR\venv\Scripts\python.exe" tools\test_churn_eta.py
+& "$env:COMFY_DIR\venv\Scripts\python.exe" tools\probe_orders.py
 ```
 
-All five must pass, and `test_node_parity.py` must pass **whenever you touch a
+All ten must pass, and `test_node_parity.py` must pass **whenever you touch a
 widget**, because it is the only thing that catches a knob that exists on one
 node and not the other, or a tooltip that stopped describing its combo.
 

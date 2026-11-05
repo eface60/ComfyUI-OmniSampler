@@ -298,6 +298,18 @@ is effectively plain Euler, and what remains is its CFG++ branch — which is
 Measured on MOSS at cfg 3.5, 12 steps: plain euler_gamma 0.826, euler_gamma+CFG++
 0.580, omni 0.815. `omni_hybrid` with `cfg_pp` off is the sane choice there.
 
+**The re-noise is the exact forward step, on both families.** Churn has to move
+the state from `p(sigma_s)` to `p(sigma_hat)`. In `(alpha, sigma)` coordinates
+that is `x_hat = r x + sqrt(sigma_hat^2 - (r sigma_s)^2) z` with
+`r = alpha_hat/alpha_s`, which is k-diffusion's additive
+`x + sqrt(sigma_hat^2 - sigma_s^2) z` only when `alpha = 1` (eps models, where
+the eps path stays bit-identical). For a flow model the additive form leaves
+the variance right and the mean wrong, and the step after the churn inherits
+it. `tools/test_churn_eta.py` measures this on a constant-x0 toy with a
+closed-form marginal: at `eta = 1` the flow mean deviation from `p(sigma_t)` was
+7.2% of `sigma_t` and is 0.2% after the fix, with the variance exact in both
+cases.
+
 The same review found and fixed a real bug: when churn moved the state to
 `sigma_hat`, the step still integrated from the original sigma, so the injected
 noise was never removed. Steps now start at `sigma_hat`, matching k-diffusion.

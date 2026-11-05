@@ -104,6 +104,19 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 
 ### Fixed
 
+* **Flow-model churn re-noised without rescaling x0.** Churn moved the state to
+  `sigma_hat` with k-diffusion's additive
+  `x + sqrt(sigma_hat^2 - sigma_s^2) z`, which is the exact forward step only
+  when `alpha = 1`. A flow model (`alpha = 1 - sigma`) needs
+  `r x + sqrt(sigma_hat^2 - (r sigma_s)^2) z` with `r = alpha_hat/alpha_s`.
+  The additive form gets the variance right and the mean wrong, so every step
+  after a churned one inherited the bias. Measured on a constant-x0 one-step
+  toy at `eta = 1`, where the model's distribution is closed-form: flow mean
+  deviation **7.2% of `sigma_t` before, 0.2% after**; variance exact in both.
+  The eps path is bit-identical (`r = 1`, verified against the old formula with
+  a fixed RNG state). `tools/test_churn_eta.py` is the proof; it also checks
+  that a churned state still lands on `p(sigma_t)` for eps and flow at
+  `s_churn` 1 and 4.
 * **A negative seed still crashed on the white-noise path.** v1.4.2 normalised a
   negative seed with `seed % 2**64` because numpy's `SeedSequence` (the Brownian
   tree) rejects negatives, but `default_noise_sampler` hands the same value to
@@ -240,7 +253,7 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   `gap_shape_check.py` runs the neutral/ON contract on eps. Tolerance gates were
   tightened to ~2-3x the measured values (`euler_cfg_pp` 1e-3 -> 2e-6 at
   cfg <= 4, no-op 1e-5 -> 1e-6, KSampler end-to-end 12% -> 8%, ODE identity
-  2e-3 -> 3e-4, SDE marginal 5% -> 2.5%). All nine model-free checks pass.
+  2e-3 -> 3e-4, SDE marginal 5% -> 2.5%). All ten model-free checks pass.
 
 The default build is behaviorally unchanged: `corrector_cfgpp` is off, `order`
 defaults to 2, churn defaults to 0 and `final_extrapolate` to 0. The only

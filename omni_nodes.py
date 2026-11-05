@@ -306,10 +306,13 @@ _KNOB_SPECS = {
             "tooltip": (
                 "Re-noise the state before the model call (churn). 0 = off. A "
                 "stochasticity dial, not an accuracy knob; it costs no extra model "
-                "call. The size follows churn_mode. On a flow model karras churn is "
-                "capped at the schedule's first sigma, so it cannot evaluate above "
-                "sigma = 1 (gamma already skips those steps). With integrator ab, "
-                "churn forces the exp path (ab is deterministic)."
+                "call. The size follows churn_mode. The re-noise is the exact "
+                "forward step on both families (alpha-rescaled on a flow model), "
+                "so the churned state stays a sample of its sigma. On a flow model "
+                "karras churn is additionally capped at the schedule's first sigma, "
+                "so it cannot evaluate above sigma = 1 (gamma already skips those "
+                "steps). With integrator ab, churn forces the exp path (ab is "
+                "deterministic)."
             ),
         },
     ),
