@@ -41,7 +41,7 @@ four names where you would normally choose `dpmpp_2m`:
 | **`omni_hybrid`** | the measured defaults: deterministic, second order, one extra evaluation on the first step | start here |
 | `omni_hybrid_sde` | the same integrator with SDE noise in the middle of the trajectory (`eta=0.5`) | when you want more variation between seeds |
 | `omni_hybrid_cfg_pp` | CFG++ guidance: the unconditional prediction becomes the noise estimate | normal-cfg models (cfg > 1), not distilled cfg-1 checkpoints |
-| `omni_hybrid_gap` | **experiment branch only**: CFG++ 1.0 with the contrast component at 60% and the hot tail flattened after 30% of the steps (`gap_parallel 0.6`, `gap_parallel_local 0.6`, `gap_local_start 0.3`) | the 6 MP Krea2 burn fix ([the experiment](docs/EXPERIMENT_GAP_SHAPING.md)); judged harmless at 1.4 MP and on MOSS, not part of a release |
+| `omni_hybrid_gap` | **experiment branch only**: CFG++ 1.0 with the contrast component at 60% and the hot tail flattened after 30% of the steps (`gap_parallel 0.6`, `gap_parallel_local 0.6`, `gap_local_start 0.3`) | the 6 MP Krea2 burn ([the experiment](docs/EXPERIMENT_GAP_SHAPING.md)); near-neutral to the eye at 1.4 MP and on MOSS, at the cost of ~27% high-frequency energy at 1.4 MP, not part of a release, and not a demonstrated fix |
 
 Steps, cfg, scheduler and denoise work exactly as they did before; the sampler
 only replaces the step update.

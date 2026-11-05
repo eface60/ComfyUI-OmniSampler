@@ -66,7 +66,7 @@ win; see the [spatial section](#optional-spatial-controls-v15-off-by-default).
 | `corrector` | `first` | trapezoidal corrector on none/first/last/first_last steps (+1 NFE each); `auto` = first for eps, none for flow (heuristic); skipped by `ab` and (by default) with CFG++ |
 | `corrector_cfgpp` | false | run the corrector under CFG++ too, averaging `u` as well as `x0` so `cond == uncond` stays a no-op; +1 NFE (2x batch at cfg = 1) |
 | `lower_order_to_end` | 1 | first order for the last N real steps |
-| `cfg_pp` | false | CFG++ (costs +1 model call per step when cfg == 1) |
+| `cfg_pp` | false | CFG++ (at cfg == 1 it disables the cfg-1 shortcut, so the model **batch** doubles; the number of calls is unchanged) |
 | `cfg_pp_strength` | 0.5 | 0 = plain sampling, 1 = reference CFG++; see below |
 | `x0_average` | `ab2` | `ab2` = DPM++(2M) coefficient; `exact` = quadrature kernel moment |
 | `min_step_ratio` | 0.5 | disable extrapolation when the step grows by >2x (0 = off) |
@@ -242,9 +242,9 @@ Two findings changed the defaults:
 1. **The step-0 corrector is an eps-model tuning.** It helps epsilon models
    (SDXL +0.02 at 12/20 steps) and at very low step counts (Krea2@6: +0.02), but
    it *hurts* flow models from 8 steps up (Krea2@10: -0.017, MOSS@10: -0.025,
-   MOSS@16: -0.016). `corrector="auto"` now resolves by family; the eps path is
-   byte-for-byte the old behaviour (SDXL 12/20 steps: 0.7434 / 0.7849 vs
-   0.7441 / 0.7849 before).
+   MOSS@16: -0.016). The shipped default is still `corrector="first"` (v1.0
+   behaviour, not a measured win -- see [CORRECTIONS.md](CORRECTIONS.md));
+   `corrector="auto"` is the opt-in family-conditional choice.
 2. **CFG++ is wrong at cfg=1 for distilled models.** At cfg 1 on Krea2 turbo the
    `omni_hybrid_cfg_pp` preset drops to 0.8919 / 0.9432 versus 0.8994 / 0.9710
    for plain `omni_hybrid` — a turbo model is trained for exactly cfg 1, so the
@@ -260,7 +260,11 @@ On these models omni is roughly at euler at 6-10 steps and clearly ahead at
 
 ### The corrector is model-dependent (honest caveat)
 
-`auto` resolves by family, which is the expectation-weighted choice, not a law:
+`auto` resolves by family, which is the expectation-weighted choice, not a law;
+the shipped default is `first`, kept for v1.0 compatibility. The rows below are
+reference-based and therefore void as accuracy measurements
+([CORRECTIONS.md](CORRECTIONS.md#2-there-is-no-converged-high-nfe-reference-to-measure-against));
+they are kept only because they are why `auto` exists.
 
 | model | 8-10 steps, corr on vs off | verdict |
 |---|---|---|

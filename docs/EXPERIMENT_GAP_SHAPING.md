@@ -5,6 +5,18 @@ shaping is not supported.** Branch `experiments/gap-shaping`. Nothing here
 changes a release default or a release sampler name; the knobs default to
 neutral, and a neutral set installs no hook (bit-identical output).
 
+> **Correction (2026-11-05).** The sweeps and bench tables below were run with
+> the default `corrector="first"`, and the post-CFG hook recorded the corrector's
+> extra evaluation as a trajectory step: a 12-step run produced **13**
+> `gap_series` entries with sigma duplicated (visible in the saved artifacts as
+> `"steps": 13, "seen": 13`). Every mean in the tables is therefore ~10-13%
+> high, and the `rev` curve they were used for has an artefactual dip at the
+> duplicated sigma. The hook no longer counts that call
+> (`tools/gap_shape_check.py`, section 8). **Re-run the sweep before quoting any
+> number below.** The qualitative conclusions (the gap shrinks with area, the
+> spectrum is universal, the magnitude is not) survive a uniform dilution, but
+> the specific values -- and the `rev`-derived 0.3 / 0.58 constants -- do not.
+
 ## The observation
 
 Krea2 turbo (distilled, so trained to run at cfg 1), 12 steps:

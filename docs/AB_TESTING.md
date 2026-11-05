@@ -35,6 +35,11 @@ only the settings it mentions, so the rest keeps your knob values.
 | `O: gap cap 0.2` | `gap_cap=0.2` | experiment branch only: per-pixel delta cap at 0.2x the local unconditional magnitude; unmeasured |
 | `P: gap HF + cap` | `gap_lf=0.05, gap_cap=0.2` | experiment branch only: the combination the `omni_hybrid_gap` name uses; unmeasured |
 | `Q: gap probe (no shaping)` | `gap_stats=True` | experiment branch only: measures and prints the per-step cond/uncond gap, output unchanged; at cfg = 1 the uncond pass is forced (2x batch) |
+| `R: gap local APG (0.6)` | `cfg_pp=True, cfg_pp_strength=1.0, gap_parallel_local=0.6` | experiment branch only: local contrast relief on the hot tail, every step; the first 6 MP run removed the end burn but glitched early structure |
+| `S: gap local APG late (0.6 from 30%)` | as `R`, plus `gap_local_start=0.3` | experiment branch only: the late-only version; the live candidate for 6 MP |
+| `T: author (0.6/0.6 from 30%)` | `cfg_pp=1.0, gap_parallel=0.6, gap_parallel_local=0.6, gap_local_start=0.3` | experiment branch only: the tuned setting (the two contrast knobs subtract, so the hot tail keeps none after 30% of the steps); this is what `omni_hybrid_gap` registers |
+| `U: author, parity tail (0.6/0.45 from 30%)` | as `T`, `gap_parallel_local=0.45` | experiment branch only: the tail flattened only to the median push |
+| `V: relief only (0.6/0.6 from 30%, no CFG++)` | `gap_parallel=0.6, gap_parallel_local=0.6, gap_local_start=0.3` | experiment branch only: the T relief on a plain cfg > 1 run |
 
 ## Suggested way to compare
 
@@ -43,8 +48,9 @@ only the settings it mentions, so the rest keeps your knob values.
 3. Each run prints `evals=measured/estimated`; compare at **equal NFE**, not
    equal step count — `skip_every=2` at 12 steps costs about as much as plain
    at 7.
-4. The `config` string lands in the PNG metadata, so you can audit later which
-   row produced which image.
+4. The `config` string is returned and printed to the console; it reaches the
+   PNG only if you wire it into a metadata/text input. ComfyUI stores the
+   workflow JSON (the widget values), not arbitrary node outputs.
 
 There is no reference-based accuracy metric for these models yet (see
 [CORRECTIONS.md](CORRECTIONS.md): the high-NFE trajectory bifurcates, so "closer
