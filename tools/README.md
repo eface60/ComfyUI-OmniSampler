@@ -37,6 +37,7 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 | [`gap_report.py`](gap_report.py) | reads a sweep: power law of the gap in area per family, the relative-response table, the spectral profile, the normalised per-step shape, and the step-count rows -- the tables in [docs/EXPERIMENT_GAP_SHAPING.md](../docs/EXPERIMENT_GAP_SHAPING.md) |
 | [`test_eta_seed.py`](test_eta_seed.py) | `eta > 0` accepts negative seeds, reproduces the same latent for the same seed, never builds a noise sampler when `eta=0` (spied on both constructors), and works on both families |
 | [`test_churn_eta.py`](test_churn_eta.py) | churn x eta: a churned state must still be a sample of `p(sigma_hat)`. Exact on a constant-x0 toy (flow mean bias 7.2% -> 0.2% of `sigma_t`; eps bit-identical to the old additive formula) |
+| [`churn_recovery.py`](churn_recovery.py) | churn's *recovery* cost per model: re-noise the recorded `x_i` at each step, evaluate once, and split the x0 change into low-frequency (structure) and detail. `--toy` is the exact-denoiser reference; `--family` runs one checkpoint. The gamma=0 control must reproduce the sampler's own call |
 | [`test_node_emptylatent.py`](test_node_emptylatent.py) | the A/B node adapts a plain empty latent the way `common_ksampler` does |
 | [`probe_orders.py`](probe_orders.py) | the exact-kernel multistep coefficients and why 3rd order was not shipped |
 | [`toy.py`](toy.py) | the analytic test problem (Gaussian mixture, both families, DOP853 reference) the other scripts import |
