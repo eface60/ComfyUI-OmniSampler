@@ -53,6 +53,7 @@ from omni_sampler.omni_nodes import (  # noqa: E402
     OmniSamplerSelectAdvanced,
     OmniSamplerSelectSimple,
     _parse_eta_window,
+    _parse_window,
     _resolve_sampler_options,
 )
 
@@ -138,8 +139,8 @@ def test_defaults():
         for node, req in (("advanced", select), ("ksampler", ksam)):
             entry = req[name]
             default = entry[1].get("default")
-            if name == "eta_window":
-                ok = _parse_eta_window(default) == omni_core.DEFAULTS[name]
+            if name in ("eta_window", "churn_window"):
+                ok = _parse_window(default, omni_core.DEFAULTS[name]) == omni_core.DEFAULTS[name]
             else:
                 ok = default == omni_core.DEFAULTS[name]
             check(f"{node} default matches DEFAULTS: {name}", ok, f"widget={default!r}")
@@ -175,6 +176,10 @@ def test_resolver():
           _parse_eta_window("0.9,0.1") == omni_core.DEFAULTS["eta_window"])
     check("eta window rejects empty input",
           _parse_eta_window("") == omni_core.DEFAULTS["eta_window"])
+    check("churn window parses and defaults the same way",
+          _parse_window("0,0.5", (0.0, 1.0)) == (0.0, 0.5)
+          and _parse_window("nonsense", (0.0, 1.0)) == (0.0, 1.0)
+          and _parse_window("0.9,0.1", (0.0, 1.0)) == (0.0, 1.0), "")
 
     preset = _resolve_sampler_options({"variant": "I: SDE eta 0.3", "eta": 0.0})
     check("preset overrides the knob it names", preset.get("eta") == 0.3, f"eta={preset.get('eta')}")
@@ -196,6 +201,8 @@ def _sentinel(name, entry):
         return "custom (use knobs)"
     if name == "eta_window":
         return "0.20,0.80"
+    if name == "churn_window":
+        return "0,0.5"
     if isinstance(kind, list):
         choices = [choice for choice in kind if choice != default]
         return choices[-1]
@@ -216,6 +223,7 @@ def _independent_expected(inputs):
     """Expected sample_omni kwargs without calling the resolver under test."""
     expected = {k: v for k, v in inputs.items() if k != "variant"}
     expected["eta_window"] = (0.2, 0.8)
+    expected["churn_window"] = (0.0, 0.5)
     return expected
 
 

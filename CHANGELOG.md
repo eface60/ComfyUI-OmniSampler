@@ -178,6 +178,18 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 
 ### Added
 
+* **`churn_window`** on both nodes (appended last, so saved workflows keep their
+  positional values): a step-fraction window for churn, `"low,high"` like
+  `eta_window`, default `"0,1"`. It selects *where* churn fires; `s_churn` still
+  says how much. This is the lever the recovery probe made actionable: at
+  512px / 6 steps the low-frequency cost of one `gamma=0.414` churn is
+  concentrated in the early-middle steps and is 0.05-0.12 by the last one. A
+  fraction rather than a sigma range, because eps (0-14.6) and flow (0-1) do not
+  share a sigma scale -- the same absolute-threshold trap the gap sweep
+  documented. The default is bit-identical to the old behaviour, a window
+  containing no step is bit-identical to `s_churn=0`, and `0,0.5` churns exactly
+  half the steps at 8 and at 16 steps (`tools/test_cross_features.py`).
+  `LAST_STATS` gained `churn_window` and `churn_windowed`.
 * `corrector_cfgpp` (default false) on both nodes: run the trapezoidal corrector
   under CFG++ by averaging the extra call's unconditional prediction with the
   same trapezoid as x0. The post-CFG hook already captures that `u`; OFF keeps

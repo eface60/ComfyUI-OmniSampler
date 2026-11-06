@@ -18,6 +18,29 @@ CATEGORY = "sampling/samplers"
 _VARIANT_PRESETS = list(AB_PRESETS.keys()) + ["custom (use knobs)"]
 
 
+def _parse_window(value, default):
+    """Return a valid (low, high) fraction pair, or ``default``.
+
+    Accepts a tuple/list or a ``"low,high"`` string (comma or semicolon).  A
+    reversed or malformed pair falls back to the shipped default: a window is
+    not a place to guess.  Shared by ``eta_window`` and ``churn_window``, so
+    both widgets behave the same way and neither can drift.
+    """
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        try:
+            lo, hi = float(value[0]), float(value[1])
+        except (TypeError, ValueError):
+            return default
+        return (lo, hi) if lo < hi else default
+    try:
+        parts = [float(x) for x in str(value).replace(";", ",").split(",") if x.strip()]
+    except ValueError:
+        parts = []
+    if len(parts) == 2 and parts[0] < parts[1]:
+        return (parts[0], parts[1])
+    return default
+
+
 def _parse_eta_window(value):
     """Return a valid (low, high) eta window, or the shipped default.
 
@@ -25,19 +48,7 @@ def _parse_eta_window(value):
     sampler wants a tuple.  Every node goes through this function so a malformed
     string cannot reach ``sample_omni`` (which unpacks exactly two values).
     """
-    if isinstance(value, (tuple, list)) and len(value) == 2:
-        try:
-            lo, hi = float(value[0]), float(value[1])
-        except (TypeError, ValueError):
-            return DEFAULTS["eta_window"]
-        return (lo, hi) if lo < hi else DEFAULTS["eta_window"]
-    try:
-        parts = [float(x) for x in str(value).replace(";", ",").split(",") if x.strip()]
-    except ValueError:
-        parts = []
-    if len(parts) == 2 and parts[0] < parts[1]:
-        return (parts[0], parts[1])
-    return DEFAULTS["eta_window"]
+    return _parse_window(value, DEFAULTS["eta_window"])
 
 
 def _resolve_sampler_options(inputs):
@@ -53,6 +64,8 @@ def _resolve_sampler_options(inputs):
     if variant in AB_PRESETS:
         opts.update(AB_PRESETS[variant])
     opts["eta_window"] = _parse_eta_window(opts.get("eta_window", DEFAULTS["eta_window"]))
+    opts["churn_window"] = _parse_window(opts.get("churn_window", DEFAULTS["churn_window"]),
+                                         DEFAULTS["churn_window"])
     return opts
 
 
@@ -327,6 +340,21 @@ _KNOB_SPECS = {
                 "comfyui-ppm's euler_gamma law, sigma_hat = sigma + s_churn * "
                 "sigma / sigma_max, skipped when it would exceed the schedule's "
                 "first sigma. Ignored when s_churn = 0."
+            ),
+        },
+    ),
+    "churn_window": (
+        "STRING",
+        {
+            "default": "0,1",
+            "tooltip": (
+                "Where churn may fire, as two step fractions (0 = first step, "
+                "1 = last; comma or semicolon separated). 0,1 = every step, the "
+                "default. 0,0.5 = only while structure is still forming; "
+                "0.5,1 = only late, where re-noising costs least. A fraction is "
+                "used instead of a sigma range because the flow domain (0..1) and "
+                "an eps schedule (0..14.6) do not share a scale. Only used when "
+                "s_churn > 0; invalid input falls back to 0,1."
             ),
         },
     ),
@@ -679,6 +707,9 @@ _SELECT_ORDER = _V151_SELECT_ORDER + [
     # Appended last so every saved workflow keeps its positional values.
     "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_parallel_local",
     "gap_local_start", "gap_stats",
+    # Appended after everything else: ComfyUI stores widget values positionally,
+    # so a window added next to s_churn would re-map every saved workflow.
+    "churn_window",
 ]
 
 _V151_KSAMPLER_ORDER = [
@@ -691,6 +722,7 @@ _KSAMPLER_ORDER = _V151_KSAMPLER_ORDER + [
     "eta_window", "corrector_cfgpp",
     "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_parallel_local",
     "gap_local_start", "gap_stats",
+    "churn_window",
 ]
 
 
@@ -731,6 +763,8 @@ class OmniSamplerSelectSimple:
         opts = dict(DEFAULTS)
         opts.update(VARIANTS.get(preset, {}))
         opts["eta_window"] = _parse_eta_window(opts.get("eta_window", DEFAULTS["eta_window"]))
+        opts["churn_window"] = _parse_window(opts.get("churn_window", DEFAULTS["churn_window"]),
+                                             DEFAULTS["churn_window"])
         return (comfy.samplers.KSAMPLER(functools.partial(sample_omni, **opts)),
                 _config_string(preset, opts))
 

@@ -806,6 +806,7 @@ def sample_omni(
     lower_order_to_end=1,
     s_churn=0.0,
     churn_mode="karras",
+    churn_window=(0.0, 1.0),
     s_tmin=0.0,
     s_tmax=float("inf"),
     noise_mode="brownian",
@@ -926,6 +927,20 @@ def sample_omni(
         cfg_map_reason = "floor_is_1"
     cfg_map_floor = min(max(float(cfg_map_floor), 0.0), 1.0)
     cfg_map_start = min(max(float(cfg_map_start), 0.0), 0.99)
+
+    # Churn window, as step fractions (0 = first step, 1 = last).  A fraction is
+    # portable across model families and schedulers; a sigma offset is not (the
+    # flow domain is 0..1, an eps schedule runs to 14.6), which is the same
+    # absolute-threshold trap the gap sweep documented.
+    try:
+        cw_lo, cw_hi = (float(v) for v in churn_window)
+    except (TypeError, ValueError):
+        cw_lo, cw_hi = 0.0, 1.0
+    cw_lo = min(max(cw_lo, 0.0), 1.0)
+    cw_hi = min(max(cw_hi, 0.0), 1.0)
+    if cw_hi < cw_lo:
+        cw_lo, cw_hi = cw_hi, cw_lo
+    n_churn_windowed = 0
 
     model_sampling = _find_model_sampling(model)
     flow = is_flow_model(model_sampling)
@@ -1182,7 +1197,11 @@ def sample_omni(
         #           proportional to sigma/sigma_max, skipped when it would
         #           exceed sigma_max (which is what ppm does at the first step)
         sigma_eval = sigma_s
-        if s_churn > 0.0 and s_tmin <= sigma_s <= s_tmax:
+        frac_i = i / max(n_steps - 1, 1)
+        churn_here = cw_lo <= frac_i <= cw_hi
+        if s_churn > 0.0 and not churn_here:
+            n_churn_windowed += 1
+        if s_churn > 0.0 and churn_here and s_tmin <= sigma_s <= s_tmax:
             if str(churn_mode) == "gamma":
                 sigma_hat = sigma_s + s_churn * (sigma_s / max(raw[0], 1e-9))
                 if sigma_t > 0.0 and sigma_hat <= raw[0]:
@@ -1467,6 +1486,8 @@ def sample_omni(
         "skip_reason": skip_reason,
         "churn_steps": int(n_churn),
         "churn_capped": int(n_churn_capped),
+        "churn_window": [round(cw_lo, 4), round(cw_hi, 4)],
+        "churn_windowed": int(n_churn_windowed),
         "corrector_steps": int(n_corr),
         "corrector_cfgpp": bool(corrector_cfgpp),
         "order_requested": int(order),
@@ -1529,6 +1550,7 @@ DEFAULTS = dict(
     lower_order_to_end=1,
     s_churn=0.0,
     churn_mode="karras",
+    churn_window=(0.0, 1.0),
     s_tmin=0.0,
     s_tmax=float("inf"),
     noise_mode="brownian",

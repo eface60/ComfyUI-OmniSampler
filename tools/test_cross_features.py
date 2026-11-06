@@ -276,6 +276,79 @@ def test_defaults_match_signature():
     check("DEFAULTS values equal the signature defaults", not drift, f"drift={drift}")
 
 
+def test_churn_window():
+    """churn_window: a step-fraction window that is provably inert by default."""
+    print("\n=== churn_window ===")
+    # Default (0, 1) must be the old behaviour, bit for bit.
+    m, sig, x = setup(n=12)
+    torch.manual_seed(7)
+    base = run(m, sig, x, s_churn=8.0, churn_mode="karras", corrector="none")
+    st_base = dict(omni_core.LAST_STATS)
+    torch.manual_seed(7)
+    full = run(m, sig, x, s_churn=8.0, churn_mode="karras", corrector="none",
+               churn_window=(0.0, 1.0))
+    st_full = dict(omni_core.LAST_STATS)
+    check("default window is bit-identical to no window", torch.equal(base, full))
+    check("default window reports the full range",
+          st_full.get("churn_window") == [0.0, 1.0]
+          and st_full.get("churn_windowed") == 0,
+          f"window={st_full.get('churn_window')} windowed={st_full.get('churn_windowed')}")
+
+    # A window that contains no step fraction must be exactly churn-off.
+    torch.manual_seed(7)
+    off = run(m, sig, x, s_churn=0.0, corrector="none")
+    torch.manual_seed(7)
+    empty = run(m, sig, x, s_churn=8.0, churn_mode="karras", corrector="none",
+                churn_window=(0.5, 0.5))
+    st_empty = dict(omni_core.LAST_STATS)
+    check("a window with no step in it is bit-identical to churn off",
+          torch.equal(off, empty))
+    check("and reports that it suppressed every step",
+          st_empty.get("churn_steps") == 0 and st_empty.get("churn_windowed") == 12,
+          f"churn_steps={st_empty.get('churn_steps')} "
+          f"windowed={st_empty.get('churn_windowed')}")
+
+    # A fraction window is resolution-independent: half the steps, at any n.
+    for n, expect in ((8, 4), (16, 8)):
+        m, sig, x = setup(n=n)
+        torch.manual_seed(7)
+        run(m, sig, x, s_churn=8.0, churn_mode="karras", corrector="none",
+            churn_window=(0.0, 0.5))
+        st = dict(omni_core.LAST_STATS)
+        check(f"window (0, 0.5) churns half of {n} steps", st.get("churn_steps") == expect,
+              f"churn_steps={st.get('churn_steps')} expected={expect}")
+
+    # The window must change which steps churn, and the output.
+    m, sig, x = setup(n=12)
+    torch.manual_seed(7)
+    full = run(m, sig, x, s_churn=8.0, churn_mode="karras", corrector="none")
+    n_full = dict(omni_core.LAST_STATS).get("churn_steps")
+    torch.manual_seed(7)
+    early = run(m, sig, x, s_churn=8.0, churn_mode="karras", corrector="none",
+                churn_window=(0.0, 0.3))
+    st_early = dict(omni_core.LAST_STATS)
+    torch.manual_seed(7)
+    late = run(m, sig, x, s_churn=8.0, churn_mode="karras", corrector="none",
+               churn_window=(0.7, 1.0))
+    st_late = dict(omni_core.LAST_STATS)
+    check("both partial windows churn fewer steps than the full one",
+          0 < st_early.get("churn_steps", 0) < n_full
+          and 0 < st_late.get("churn_steps", 0) < n_full,
+          f"full={n_full} early={st_early.get('churn_steps')} "
+          f"late={st_late.get('churn_steps')}")
+    check("early and late windows select different steps",
+          not torch.equal(early, late))
+    check("a windowed run differs from the unwindowed one",
+          not torch.equal(full, early) and not torch.equal(full, late))
+
+    # s_churn = 0 stays a no-op whatever the window says.
+    torch.manual_seed(7)
+    zero_a = run(m, sig, x, s_churn=0.0, corrector="none")
+    torch.manual_seed(7)
+    zero_b = run(m, sig, x, s_churn=0.0, corrector="none", churn_window=(0.2, 0.8))
+    check("s_churn=0 ignores the window", torch.equal(zero_a, zero_b))
+
+
 def main():
     test_order_clamp()
     test_ab_uses_order()
@@ -283,6 +356,7 @@ def main():
     test_final_extrapolate_sigmas()
     test_churn_flow_domain()
     test_skip_disabled_under_cfgpp()
+    test_churn_window()
     test_defaults_match_signature()
     print()
     if FAILS:

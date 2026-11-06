@@ -62,6 +62,7 @@ win; see the [spatial section](#optional-spatial-controls-v15-off-by-default).
 | `eta_window` | `0.10,0.90` | trajectory fractions where SDE noise is injected |
 | `s_churn` | 0.0 | churn: re-noise the state before the model call (forces `exp` with `ab`) |
 | `churn_mode` | `karras` | `karras` = relative law (euler/heun); `gamma` = comfyui-ppm's euler_gamma law |
+| `churn_window` | `0,1` | step fractions where churn may fire (`0` = first step, `1` = last), comma or semicolon separated; a fraction rather than a sigma range because eps (0-14.6) and flow (0-1) do not share a sigma scale. Only used when `s_churn > 0` |
 | `noise_mode` | `brownian` | Brownian-tree correlated noise or white noise (only when `eta > 0`) |
 | `corrector` | `first` | trapezoidal corrector on none/first/last/first_last steps (+1 NFE each); `auto` = first for eps, none for flow (heuristic); skipped by `ab` and (by default) with CFG++ |
 | `corrector_cfgpp` | false | run the corrector under CFG++ too, averaging `u` as well as `x0` so `cond == uncond` stays a no-op; +1 NFE (2x batch at cfg = 1) |
