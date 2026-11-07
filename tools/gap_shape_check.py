@@ -1,4 +1,4 @@
-"""Guidance-gap shaping (experimental): invariants and the tone/structure test.
+"""Guidance-gap shaping: invariants and the tone/structure test.
 
 The feature rewrites the guidance delta -- the conditional minus the
 unconditional prediction -- before that delta enters the step, for every model

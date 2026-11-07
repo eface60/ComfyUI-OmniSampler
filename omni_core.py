@@ -490,7 +490,7 @@ def _apply_cfg_map(den, uncond, scale, cmap):
 
 
 # --------------------------------------------------------------------------
-# Guidance-gap shaping (experimental, OFF by default)
+# Guidance-gap shaping (off by default)
 # --------------------------------------------------------------------------
 # The guidance delta -- the conditional minus the unconditional prediction, in
 # x0 space -- is the only thing CFG adds to a step.  It is the same object for
@@ -498,7 +498,7 @@ def _apply_cfg_map(den, uncond, scale, cmap):
 # a denoised prediction) and for every guidance path (plain cfg > 1, cfg = 1
 # with the unconditional pass forced, and CFG++), so shaping it applies to all
 # of them at once instead of patching one path.  See
-# docs/EXPERIMENT_GAP_SHAPING.md for the measurements that motivate it.
+# docs/GAP_SHAPING.md for the measurements that motivate it.
 #
 # Every knob is neutral at its default (0, 0, 0, 1), and a fully neutral set
 # installs no hook at all, so "off" is bit-identical to the sampler without it.
@@ -840,7 +840,7 @@ def sample_omni(
     cfg_map_floor=0.85,
     cfg_map_start=0.5,
     cfg_map_pool=8,
-    # ---- experimental: guidance-gap shaping (all model families, all paths) ----
+    # ---- guidance-gap shaping (all model families, all paths) ----
     gap_lf=0.0,
     gap_lf_keep=0.0,
     gap_cap=0.0,
@@ -895,7 +895,7 @@ def sample_omni(
     the guidance is locally excessive, with the "excessive" reference measured
     per step from the run itself (no absolute threshold).  The defaults
     (0, 0, 0, 1, 0) are neutral and install no hook, so "off" is bit-identical
-    to the sampler without the feature; see docs/EXPERIMENT_GAP_SHAPING.md for
+    to the sampler without the feature; see docs/GAP_SHAPING.md for
     why the knobs exist and what the cross-model sweep measured.
 
     ``gap_stats`` records the cond/uncond gap per step (``rms_ratio``,
@@ -995,7 +995,7 @@ def sample_omni(
     # post-CFG hook) at the NEXT node's sigma.  It is a model call but not a
     # trajectory step: counting it would put a duplicate sigma in gap_series,
     # inflate every gap mean, and make `rev` dip (the two entries share a
-    # sigma).  The hook reads this flag; see docs/EXPERIMENT_GAP_SHAPING.md.
+    # sigma).  The hook reads this flag; see docs/GAP_SHAPING.md.
     call_ctx = {"corrector": False}
     # strength 0 makes CFG++ exactly plain sampling (u is blended away), so the
     # hook -- and with it disable_cfg1_optimization, which forces the
@@ -1600,11 +1600,11 @@ DEFAULTS = dict(
     cfg_map_floor=0.85,
     cfg_map_start=0.5,
     cfg_map_pool=8,
-    # Experimental guidance-gap shaping (docs/EXPERIMENT_GAP_SHAPING.md).
+    # Guidance-gap shaping (docs/GAP_SHAPING.md).
     # Neutral at the defaults: gap_lf 0 / gap_lf_keep 0 / gap_cap 0 / gap_parallel
-    # 1 install no hook, so the sampler is bit-identical to the release.  The
-    # values the experiment proposes are NOT measured optima and are deliberately
-    # not defaults; pick them on the A/B node or with the `omni_hybrid_gap` name.
+    # 1 install no hook, so the sampler is bit-identical to plain sampling.  The
+    # values are tuned by eye, not measured optima, and are deliberately not
+    # defaults; pick them on the A/B node or with the `omni_hybrid_gap` name.
     gap_lf=0.0,
     gap_lf_keep=0.0,
     gap_cap=0.0,
@@ -1639,9 +1639,9 @@ AB_PRESETS = {
         "eta": 1.0,
         "px_order": True,
     },
-    # Guidance-gap shaping (experimental; docs/EXPERIMENT_GAP_SHAPING.md).  The
-    # numbers are the experiment's starting points, not measurements: the rows
-    # exist so the four arms can be compared at equal NFE on one node.
+    # Guidance-gap shaping (docs/GAP_SHAPING.md).  The first rows are starting
+    # points, not measurements: they exist so the arms can be compared at equal
+    # NFE on one node.
     "N: gap HF (5%)": {"gap_lf": 0.05, "gap_lf_keep": 0.0},
     "O: gap cap 0.2": {"gap_cap": 0.2},
     "P: gap HF + cap": {"gap_lf": 0.05, "gap_lf_keep": 0.0, "gap_cap": 0.2},
@@ -1698,7 +1698,7 @@ VARIANTS = {
     "omni_hybrid": {},                       # measured defaults
     "omni_hybrid_sde": {"eta": 0.5},         # mid-trajectory stochasticity
     "omni_hybrid_cfg_pp": {"cfg_pp": True},  # CFG++ guidance
-    # Experimental (docs/EXPERIMENT_GAP_SHAPING.md): CFG++ with the contrast
+    # High-resolution preset (docs/GAP_SHAPING.md): CFG++ with the contrast
     # component at 60%, the hot tail flattened after 30% of the steps.  This is
     # the tuned setting the author judged harmless at 1.4 MP and on MOSS, and
     # effective at Krea2 6 MP.  It is the T row.

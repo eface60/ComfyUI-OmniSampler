@@ -3,9 +3,9 @@
 Newest first. Every entry says what changed and, where it was measured, the
 number behind it; the scripts that produce those numbers are in `tools/`.
 
-## Unreleased
+## v1.6.0 — 2026-11-07
 
-### Changed (experiment branch)
+### Changed
 
 * **Node layout.** The single select node split in two: `Omni-Hybrid Sampler
   (simple)` is one preset dropdown plus a `config` string, and `Omni-Hybrid
@@ -18,7 +18,26 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   be re-pointed at the advanced node (its widget order is the old one minus
   `variant`).
 
-### Added (experiment branch `experiments/gap-shaping`, OFF by default)
+* **Guidance-gap shaping is a regular feature.** The `gap_*` knobs were developed
+  on `experiments/gap-shaping` and documented as experimental; they are now part
+  of both nodes' knob sets, `omni_hybrid_gap` is one of the four registered
+  sampler names, and the evidence page is
+  [docs/GAP_SHAPING.md](docs/GAP_SHAPING.md) (renamed from
+  `EXPERIMENT_GAP_SHAPING.md`). The knobs stay neutral by default, so plain
+  `omni_hybrid` is unchanged; the measurements and the tuning are the same,
+  including the sweep's finding that the guidance gap is not the 6 MP cause.
+
+* `tools/local_metric.py`: the refined reference was read one node before the
+  shared endpoint (`substeps - 1` instead of `substeps`), and it used a fixed 16
+  substeps. The endpoint index is fixed, substeps now scale as
+  `max(--substeps, ceil(h / 0.2))`, and named deterministic variants
+  (`first,none,cfg_pp,cfg_pp_px,cfg_pp_corr,...`) replace the corrector-only
+  switch. It also repeats the first arm and its refined reference and refuses to
+  write a JSON unless both are bit-identical; the output name carries the
+  variant list. `docs/CORRECTIONS.md` records the superseded table, the
+  reproducibility failure, and the retraction.
+
+### Added
 
 * **Guidance-gap shaping.** The cond/uncond delta is the only thing CFG adds to
   a step, and it is the same object for eps and flow models and for every
@@ -36,18 +55,19 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   (`tools/gap_shape_check.py`).
 * **`gap_stats`**: records the per-step gap in `LAST_STATS` without changing the
   output -- `rms_ratio`, `lf_share`, `par_share`, the applied cap scale, and a
-  `gap_series` of `(sigma, metrics)`. This is the measurement the branch exists
-  for: it is how a 1024x1408 run and a 2048x2944 run are compared. The node
+  `gap_series` of `(sigma, metrics)`. This is the measurement the shaping was tuned
+  on: a 1024x1408 run and a 2048x2944 run are compared on those numbers. The node
   prints the means in its config string.
 * A/B rows `N: gap HF (5%)`, `O: gap cap 0.2`, `P: gap HF + cap`,
   `Q: gap probe (no shaping)`, and the registered sampler name
-  `omni_hybrid_gap` (CFG++ 1.0 + `gap_lf 0.05` + `gap_cap 0.2`) so the setting
-  can be tested from a stock KSampler. The values are the experiment's starting
-  points, not measurements; no release name changes.
+  `omni_hybrid_gap` (CFG++ 1.0 with `gap_parallel 0.6`, `gap_parallel_local 0.6`
+  and `gap_local_start 0.3`, A/B row `T`) so the preset can be used from a
+  stock KSampler. `N`, `O` and `P` are starting points kept for comparison, not
+  measurements.
 * `tools/gap_shape_check.py` (invariants, and a synthetic tone/structure
   demonstration through ComfyUI's real post-CFG hook) and
   `tools/gap_shape_bench.py` (the real-model matrix at a chosen resolution).
-  The case and what would falsify it: [docs/EXPERIMENT_GAP_SHAPING.md](docs/EXPERIMENT_GAP_SHAPING.md).
+  The case and what would falsify it: [docs/GAP_SHAPING.md](docs/GAP_SHAPING.md).
 * **`gap_parallel_local`**: the local (per-pixel) form of the contrast
   projection. The author's 6 MP Krea2 test with the global `gap_parallel 0`
   removed the burn and washed the frame grey, so the contrast lives in that
@@ -61,7 +81,7 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   modulation measured 0.25-0.45% of one step term. A/B row
   `R: gap local APG (0.6)`. Invariants verified in `tools/gap_shape_check.py`
   (uniform push leaves the gate at zero, the hotspot fires it, scale-free,
-  `local=0` bit-identical, `cond == uncond` no-op); unmeasured on a real model.
+  `local=0` bit-identical, `cond == uncond` no-op); judged by eye at 6 MP.
 * **Sensors for the automatic rules**: `gap_stats` now also records `rev` (the
   model's own revision rate, `||x0_t - x0_(t-1)|| / ||x0_t||` -- the phase
   signal that `gap_local_start` currently hardcodes) and `oor` (the fraction of
@@ -71,7 +91,7 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   A/B node prints their means in its config string. The proposed rules
   (feed-forward start from `rev`, amount from `oor` against a plain-run baseline,
   per-pixel phase later) are in
-  [docs/EXPERIMENT_GAP_SHAPING.md](docs/EXPERIMENT_GAP_SHAPING.md#sensors-what-the-sampler-can-measure-about-itself).
+  [docs/GAP_SHAPING.md](docs/GAP_SHAPING.md#sensors-what-the-sampler-can-measure-about-itself).
 * **Labeling pass on the relief (author's eye)**: harmless at 1.4 MP on Krea2
   ("difference is noise"), harmless at a resolved size on MOSS ("nothing worth
   adding exceptions for"), and no burn-control difference between flattening the
@@ -100,7 +120,32 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   guidance term are algebraically the same quantity), Anima shows artifacts at
   6 MP native with and without guidance, and MOSS is fine -- i.e. the 6 MP
   failures are per-checkpoint out-of-distribution behaviour, not a sampler
-  defect, and the branch is closed except for the APG test.
+  defect, and the local contrast relief is the part that is kept.
+
+* **`churn_window`** on both nodes (appended last, so saved workflows keep their
+  positional values): a step-fraction window for churn, `"low,high"` like
+  `eta_window`, default `"0,1"`. It selects *where* churn fires; `s_churn` still
+  says how much. This is the lever the recovery probe made actionable: at
+  512px / 6 steps the low-frequency cost of one `gamma=0.414` churn is
+  concentrated in the early-middle steps and is 0.05-0.12 by the last one. A
+  fraction rather than a sigma range, because eps (0-14.6) and flow (0-1) do not
+  share a sigma scale -- the same absolute-threshold trap the gap sweep
+  documented. The default is bit-identical to the old behaviour, a window
+  containing no step is bit-identical to `s_churn=0`, and `0,0.5` churns exactly
+  half the steps at 8 and at 16 steps (`tools/test_cross_features.py`).
+  `LAST_STATS` gained `churn_window` and `churn_windowed`.
+* `corrector_cfgpp` (default false) on both nodes: run the trapezoidal corrector
+  under CFG++ by averaging the extra call's unconditional prediction with the
+  same trapezoid as x0. The post-CFG hook already captures that `u`; OFF keeps
+  the v1.0 rule (the corrector is skipped under CFG++). `cond == uncond` stays a
+  no-op to 2.2e-7 (eps) / 2.5e-7 (flow); +1 NFE (2x batch at cfg = 1).
+* `M: author pref (cfgpp+churn+eta+px)` A/B row: the registered
+  `omni_hybrid_cfgpp_author_pref` setting as one row, so the combination can be
+  compared with its parts at equal NFE.
+* `tools/test_cross_features.py`: the order clamp, the `ab` + churn fallback, the
+  endpoint-fit sigmas and the flow churn cap, each with a negative control (the
+  churn case records every evaluation sigma, asserts a one-step flow run is a
+  bit-exact no-op, and checks that eps still evaluates above `sigma_max`).
 
 ### Fixed
 
@@ -210,45 +255,6 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   endpoint fit now receives the sigmas the model actually saw, recorded per
   step; with churn off those are the raw schedule entries, so the default path
   is unchanged.
-
-### Added
-
-* **`churn_window`** on both nodes (appended last, so saved workflows keep their
-  positional values): a step-fraction window for churn, `"low,high"` like
-  `eta_window`, default `"0,1"`. It selects *where* churn fires; `s_churn` still
-  says how much. This is the lever the recovery probe made actionable: at
-  512px / 6 steps the low-frequency cost of one `gamma=0.414` churn is
-  concentrated in the early-middle steps and is 0.05-0.12 by the last one. A
-  fraction rather than a sigma range, because eps (0-14.6) and flow (0-1) do not
-  share a sigma scale -- the same absolute-threshold trap the gap sweep
-  documented. The default is bit-identical to the old behaviour, a window
-  containing no step is bit-identical to `s_churn=0`, and `0,0.5` churns exactly
-  half the steps at 8 and at 16 steps (`tools/test_cross_features.py`).
-  `LAST_STATS` gained `churn_window` and `churn_windowed`.
-* `corrector_cfgpp` (default false) on both nodes: run the trapezoidal corrector
-  under CFG++ by averaging the extra call's unconditional prediction with the
-  same trapezoid as x0. The post-CFG hook already captures that `u`; OFF keeps
-  the v1.0 rule (the corrector is skipped under CFG++). `cond == uncond` stays a
-  no-op to 2.2e-7 (eps) / 2.5e-7 (flow); +1 NFE (2x batch at cfg = 1).
-* `M: author pref (cfgpp+churn+eta+px)` A/B row: the registered
-  `omni_hybrid_cfgpp_author_pref` setting as one row, so the combination can be
-  compared with its parts at equal NFE.
-* `tools/test_cross_features.py`: the order clamp, the `ab` + churn fallback, the
-  endpoint-fit sigmas and the flow churn cap, each with a negative control (the
-  churn case records every evaluation sigma, asserts a one-step flow run is a
-  bit-exact no-op, and checks that eps still evaluates above `sigma_max`).
-
-### Changed
-
-* `tools/local_metric.py`: the refined reference was read one node before the
-  shared endpoint (`substeps - 1` instead of `substeps`), and it used a fixed 16
-  substeps. The endpoint index is fixed, substeps now scale as
-  `max(--substeps, ceil(h / 0.2))`, and named deterministic variants
-  (`first,none,cfg_pp,cfg_pp_px,cfg_pp_corr,...`) replace the corrector-only
-  switch. It also repeats the first arm and its refined reference and refuses to
-  write a JSON unless both are bit-identical; the output name carries the
-  variant list. `docs/CORRECTIONS.md` records the superseded table, the
-  reproducibility failure, and the retraction.
 
 ### Measured
 

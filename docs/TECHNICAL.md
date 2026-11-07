@@ -13,7 +13,7 @@ that failed — that chose the defaults. Every number here comes from a script i
 - [Measured results](#measured-results)
 - [Notes by model family](#notes-by-model-family)
 - [Optional spatial controls](#optional-spatial-controls-v15-off-by-default)
-- [Guidance-gap shaping (experiment branch)](#guidance-gap-shaping-experiment-branch-off-by-default)
+- [Guidance-gap shaping (off by default)](#guidance-gap-shaping-off-by-default)
 - [Limitations](#limitations)
 - [Verify it yourself](#verify-it-yourself)
 - [Where the evidence lives](#where-the-evidence-lives)
@@ -79,11 +79,11 @@ win; see the [spatial section](#optional-spatial-controls-v15-off-by-default).
 | `cfg_map` | false | late 8×8 per-region CFG map; needs cfg > 1 and no CFG++ |
 | `cfg_map_floor` | 0.85 | fraction of the late guidance delta kept in the lowest-gap region |
 | `cfg_map_start` | 0.5 | trajectory fraction where the cond/uncond gap is measured |
-| `gap_lf` | 0.0 | experimental: remove the guidance delta's low-frequency band, as a fraction of the latent's short side (0 = off; see the gap-shaping section) |
+| `gap_lf` | 0.0 | remove the guidance delta's low-frequency band, as a fraction of the latent's short side (0 = off; see the gap-shaping section) |
 | `gap_lf_keep` | 0.0 | fraction of that band kept (damps the removal instead of removing it) |
 | `gap_cap` | 0.0 | per-pixel cap on the delta, as a multiple of the local unconditional magnitude (0 = off) |
 | `gap_parallel` | 1.0 | fraction of the delta's component along the conditional prediction kept (1 = unchanged, 0 = projected away) |
-| `gap_parallel_local` | 0.0 | experimental: remove up to this fraction of that contrast component, but only in the top tenth of the frame's per-pixel contrast push (PD-AOS-style self-normalised gate, no absolute threshold) |
+| `gap_parallel_local` | 0.0 | remove up to this fraction of that contrast component, but only in the top tenth of the frame's per-pixel contrast push (PD-AOS-style self-normalised gate, no absolute threshold) |
 | `gap_local_start` | 0.0 | step fraction (0 = first step, 1 = last) after which the local relief ramps in; early steps are left alone |
 | `gap_stats` | false | record the per-step cond/uncond gap in `LAST_STATS` without changing the output; at cfg = 1 this forces the unconditional pass (2x batch) |
 
@@ -331,19 +331,18 @@ noise, either law) and `churn_capped` (steps the flow cap reduced), which is the
 quickest way to confirm a churn setting actually fires on a given schedule; the
 A/B node prints `churn k/n steps` in its config string for the same reason.
 
-### The retired author-preference name (v1.5.5, removed on the experiment branch)
+### The retired author-preference name (v1.5.5, replaced in v1.6)
 
 omni_hybrid_cfgpp_author_pref was the author's everyday by-eye setting: CFG++
 0.5, gamma churn at the slider maximum, eta=1, and the px_order gate. It was
 never a measured optimum, and the gap relief superseded it, so the registered
 name is gone: the stock KSampler / KSamplerAdvanced / KSamplerSelect lists now
-carry the three measured settings plus the experimental omni_hybrid_gap.
+carry the three measured settings plus the tuned omni_hybrid_gap.
 The combination itself is still reachable as A/B row M: cfgpp+churn+eta+px
 (lab) on the A/B node.
 
-The gap relief's own setting (omni_hybrid_gap) is documented in
-[EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md); it is not part of a
-release, and it is the only extra name the branch registers.
+The gap relief's own setting (`omni_hybrid_gap`) is documented in
+[GAP_SHAPING.md](GAP_SHAPING.md); it is one of the four registered names.
 
 ## Optional spatial controls (v1.5, OFF by default)
 
@@ -365,11 +364,11 @@ originals (the guidance ramp never starts on short `simple` schedules, and the
 operator can judge the appearance; the numbers above are not a substitute for
 that.
 
-## Guidance-gap shaping (experiment branch, OFF by default)
+## Guidance-gap shaping (off by default)
 
-**Not a release feature, and the hypothesis behind it was tested and not
-supported.** The branch `experiments/gap-shaping` started from one observation:
-Krea2 turbo at 2048×2944 (12 steps, cfg 1) is artifact-free but burns with
+**Supported, and off by default.** omni_hybrid_gap is one of the four
+registered sampler names. The work started from one observation: Krea2 turbo at
+2048×2944 (12 steps, cfg 1) is artifact-free but burns with
 `cfg_pp_strength` 1.0, artifacts with 0.5, and is fine at 1024×1408. The guess
 was that the guidance gap grows at out-of-distribution sizes. A sweep of three
 families (Krea2 turbo, MOSS base, Anima base 1.0, 0.26-6.0 MP, cfg 1/3.5/4)
@@ -381,7 +380,7 @@ low-frequency share at 2/5/10/20% bands has a coefficient of variation of
 0.10-0.12 across the three) and the front-loaded shape; what is not is the
 magnitude (4.7x spread at 1 MP), so no absolute automatic threshold exists. The
 tables and the reproduction commands are in
-[EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md).
+[GAP_SHAPING.md](GAP_SHAPING.md).
 
 The quantity being shaped is the guidance delta, `denoised - uncond`, in x0
 space. At `cfg == 1` the strength knob has a literal meaning: it is the fraction
@@ -413,7 +412,7 @@ so no absolute threshold is needed, which is exactly what the cross-model sweep
 says is impossible. PD-AOS's own implementation was audited and left out: its
 per-pixel modulation measured 0.25-0.45% of one step term and its own A/B could
 not resolve it ([PD_AOS_AUDIT.md](PD_AOS_AUDIT.md)). The gate here is a
-different signal and is **not measured on a real model yet**.
+different signal; it is judged by eye at 6 MP, not by a reference metric.
 
 `gap_local_start` exists because the first 6 MP test of the local gate worked
 but left early "colour blobs that resolved themselves later": a per-step gate
@@ -433,7 +432,7 @@ also state-free: they depend only on the current prediction, so the
 output: per step it records `rms_ratio` (`||delta||/||uncond||`), `lf_share`
 (energy fraction below 5% of the short side) and `par_share` (energy fraction
 along the conditional prediction), plus the mean applied cap scale when the cap
-fires. That is the measurement the hypothesis is judged by: a 1024×1408 run and
+fires. That is the comparison the knobs were tuned on: a 1024×1408 run and
 a 2048×2944 run are compared on those numbers.
 
 `tools/gap_shape_check.py` demonstrates the intended mechanism on a synthetic
@@ -460,12 +459,13 @@ matrix.
 * `corrector_cfgpp` is wired and its no-op invariant is verified, but no
   real-model accuracy comparison has been run: the corrector itself is still an
   open question (see [CORRECTIONS.md](CORRECTIONS.md)).
-* The gap-shaping knobs are experimental and neutral by default. They are
-  invariants-verified and demonstrated on a synthetic tone/structure pair, and
-  the cross-model sweep in [EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md)
-  did run: it found the guidance gap *shrinking* with resolution, so the shaping
-  is not a resolution fix, and no value of `gap_lf` / `gap_cap` / `gap_parallel`
-  is a measured optimum.
+* The gap-shaping knobs are neutral by default and off unless set. They are
+  invariant-verified and demonstrated on a synthetic tone/structure pair; the
+  real-model evidence is by eye (Krea2 1.4 MP and 6 MP, MOSS), not a reference
+  metric. The cross-model sweep in [GAP_SHAPING.md](GAP_SHAPING.md) found the
+  guidance gap *shrinking* with resolution, so the shaping is not a resolution
+  fix and no value of `gap_lf` / `gap_cap` / `gap_parallel` is a measured
+  optimum.
 * The only mode-free real-model instrument is `tools/local_metric.py`; its
   first-interval reference is only resolved when the substep count scales with
   the interval's `lambda` gap (the default does), and it refuses to write

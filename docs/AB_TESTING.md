@@ -31,15 +31,15 @@ only the settings it mentions, so the rest keeps your knob values.
 | `K: per-pixel order` | `px_order=True` | experimental PD-AOS port; a tight tolerance cost 0.014 SSIM on Krea2 @8, a loose one was neutral (see [the PD-AOS audit](PD_AOS_AUDIT.md)) |
 | `L: region CFG map` | `cfg_map=True` | experimental PD-AOS port; needs cfg > 1, moves MOSS @8 by 0.0142 image RMS (SSIM 0.9824) |
 | `M: cfgpp+churn+eta+px (lab)` | `cfg_pp=True, s_churn=100, churn_mode=gamma, eta=1.0, px_order=True` | the retired author-preference combination, kept as a lab row; chosen by eye, no benchmark covers it |
-| `N: gap HF (5%)` | `gap_lf=0.05, gap_lf_keep=0.0` | experiment branch only: move the delta's low-frequency band back to the unconditional prediction ([EXPERIMENT_GAP_SHAPING.md](EXPERIMENT_GAP_SHAPING.md)); unmeasured |
-| `O: gap cap 0.2` | `gap_cap=0.2` | experiment branch only: per-pixel delta cap at 0.2x the local unconditional magnitude; unmeasured |
-| `P: gap HF + cap` | `gap_lf=0.05, gap_cap=0.2` | experiment branch only: the combination the `omni_hybrid_gap` name uses; unmeasured |
-| `Q: gap probe (no shaping)` | `gap_stats=True` | experiment branch only: measures and prints the per-step cond/uncond gap, output unchanged; at cfg = 1 the uncond pass is forced (2x batch) |
-| `R: gap local APG (0.6)` | `cfg_pp=True, cfg_pp_strength=1.0, gap_parallel_local=0.6` | experiment branch only: local contrast relief on the hot tail, every step; the first 6 MP run removed the end burn but glitched early structure |
-| `S: gap local APG late (0.6 from 30%)` | as `R`, plus `gap_local_start=0.3` | experiment branch only: the late-only version; the live candidate for 6 MP |
-| `T: author (0.6/0.6 from 30%)` | `cfg_pp=1.0, gap_parallel=0.6, gap_parallel_local=0.6, gap_local_start=0.3` | experiment branch only: the tuned setting (the two contrast knobs subtract, so the hot tail keeps none after 30% of the steps); this is what `omni_hybrid_gap` registers |
-| `U: author, parity tail (0.6/0.45 from 30%)` | as `T`, `gap_parallel_local=0.45` | experiment branch only: the tail flattened only to the median push |
-| `V: relief only (0.6/0.6 from 30%, no CFG++)` | `gap_parallel=0.6, gap_parallel_local=0.6, gap_local_start=0.3` | experiment branch only: the T relief on a plain cfg > 1 run |
+| `N: gap HF (5%)` | `gap_lf=0.05, gap_lf_keep=0.0` | move the delta's low-frequency band back to the unconditional prediction ([GAP_SHAPING.md](GAP_SHAPING.md)); unmeasured |
+| `O: gap cap 0.2` | `gap_cap=0.2` | per-pixel delta cap at 0.2x the local unconditional magnitude; unmeasured |
+| `P: gap HF + cap` | `gap_lf=0.05, gap_cap=0.2` | the low-frequency/cap combination; superseded by `T` for `omni_hybrid_gap`; unmeasured |
+| `Q: gap probe (no shaping)` | `gap_stats=True` | measures and prints the per-step cond/uncond gap, output unchanged; at cfg = 1 the uncond pass is forced (2x batch) |
+| `R: gap local APG (0.6)` | `cfg_pp=True, cfg_pp_strength=1.0, gap_parallel_local=0.6` | local contrast relief on the hot tail, every step; the first 6 MP run removed the end burn but glitched early structure |
+| `S: gap local APG late (0.6 from 30%)` | as `R`, plus `gap_local_start=0.3` | the late-only version, without the global projection; the early structure is left alone |
+| `T: author (0.6/0.6 from 30%)` | `cfg_pp=1.0, gap_parallel=0.6, gap_parallel_local=0.6, gap_local_start=0.3` | the tuned setting (the two contrast knobs subtract, so the hot tail keeps none after 30% of the steps); this is what `omni_hybrid_gap` registers |
+| `U: author, parity tail (0.6/0.45 from 30%)` | as `T`, `gap_parallel_local=0.45` | the tail flattened only to the median push |
+| `V: relief only (0.6/0.6 from 30%, no CFG++)` | `gap_parallel=0.6, gap_parallel_local=0.6, gap_local_start=0.3` | the T relief on a plain cfg > 1 run |
 
 ## Suggested way to compare
 

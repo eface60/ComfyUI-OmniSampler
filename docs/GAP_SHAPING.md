@@ -1,9 +1,10 @@
-# Guidance-gap shaping (experiment branch)
+# Guidance-gap shaping
 
-**Status: tested on three model families; the hypothesis that motivated the
-shaping is not supported.** Branch `experiments/gap-shaping`. Nothing here
-changes a release default or a release sampler name; the knobs default to
-neutral, and a neutral set installs no hook (bit-identical output).
+**Status: part of the sampler, off by default.** The knobs reshape the guidance
+delta in x0 space; neutral values install no hook (bit-identical output), and
+`omni_hybrid_gap` is the tuned preset. This page is the evidence behind them:
+the observation that started it, what the sweep ruled out, the tuning pass, and
+what is still open.
 
 > **Correction (2026-11-05).** The sweeps and bench tables below were run with
 > the default `corrector="first"`, and the post-CFG hook recorded the corrector's
@@ -35,7 +36,7 @@ the gap is pushed into the noise estimate instead, which is where the artifacts
 come from. Both settings are the same gap routed to two places.
 
 Both resolutions run 12 steps, so step placement was ruled out early. The
-question this branch was built around: does the gap itself change with
+question this work started from: does the gap itself change with
 resolution -- is it bigger, or more tonal, when the model is out of distribution?
 
 ## What the sweep measured
@@ -114,7 +115,7 @@ exist in this data.
 * The remaining explanations for the 6 MP symptom are outside the guidance
   delta: the VAE decode at 6 MP (tiling/statistics), attention over ~94k tokens
   at a size the model was not trained on, or the model's own out-of-distribution
-  content. The branch's next measurement should be plain vs CFG++ at the same
+  content. The next measurement would be plain vs CFG++ at the same
   seed and size with image metrics -- if plain burns too, no sampler-side
   guidance change can be the fix.
 * The knobs are still available and still verified, but they are not a resolution
@@ -150,9 +151,9 @@ that removed the artifacts.
 This also reframes the sweep's main result: the 6 MP delta is *smaller* than the
 1.4 MP one, so the burn is not more guidance -- it is a **lower tolerance for the
 same guidance** at a size the model was not trained on. Which is why no
-delta-magnitude or delta-spectrum transform in this branch can remove it.
+delta-magnitude or delta-spectrum transform in these knobs can remove it.
 
-## The fix under test
+## The knobs
 
 Leave the *amount* of guidance (cfg) alone and shape *what the gap does*, in x0
 space, in the post-CFG hook:
@@ -174,7 +175,7 @@ noise). No extra model call.
 
 The local gate at `0.6` on every step, CFG++ 1.0, cfg 1, 2048x2944:
 
-* **the ending burn is nearly completely gone** (the thing this whole branch was
+* **the ending burn is nearly completely gone** (the thing this work was
   after), detail kept;
 * but the structure glitches early -- "colour blobs that had to be resolved
   creatively" -- and the model recovers them over the rest of the run.
@@ -191,9 +192,8 @@ ramps in only after a fraction of the **steps** (not of logSNR -- the extreme
 sigmas eat most of the lambda span, so 30% of logSNR is step 2 of 12). The A/B
 row is `S: gap local APG late (0.6 from 30%)`; `0.25-0.40` is the range.
 
-Next: run `S` at 6 MP. If the early blobs are gone and the end burn stays
-suppressed, the ramp becomes part of the recommendation, and the remaining
-question is only how much relief the mid-trajectory needs.
+The late-only variant is row `S` (`gap_local_start` 0.25-0.40); the tuned
+preset is row `T`, the same ramp with the global projection on top.
 
 ## Measuring the constants (Krea2, 12 steps, 6.03 MP and 1.44 MP)
 
@@ -309,10 +309,9 @@ What this settles:
   by -27%, which the eye reads as a noise difference, not a loss of contrast.
   The mechanism is therefore closer to "removes the guidance's local grain" than
   "lowers contrast", and the image metric should be described that way.
-* **It is safe as an opt-in and plausible as a default.** Harmless where there is
-  no burn, effective at Krea2 6 MP. It stays opt-in (`omni_hybrid_gap`, row `T`)
-  until it has been judged on more checkpoints -- but the "does it hurt normal
-  runs" question is answered: no.
+* **It is safe to ship.** Harmless where there is no burn, effective at Krea2
+  6 MP. It ships as `omni_hybrid_gap` (row `T`), while the plain sampler keeps
+  the knobs neutral; the "does it hurt normal runs" question is answered: no.
 
 ## Sensors: what the sampler can measure about itself
 
@@ -353,13 +352,13 @@ exists at step time.
 Deliberately *not* proposed: an integrating controller on `oor` (it would
 feedback into the thing it measures) and any absolute threshold.
 
-## What is still worth testing
+## Open questions
 
-1. **`gap_parallel_local` (local APG) at 6 MP.** First run: the end burn is
-   nearly gone and the detail is kept, but the early structure glitches; see
-   the result section above. The next render is the late-only variant
-   (`S: gap local APG late (0.6 from 30%)`, or `gap_local_start` 0.25-0.40),
-   which leaves the first steps untouched. This is the live candidate.
+1. **`gap_parallel_local` at 6 MP.** The first run: the end burn is nearly gone
+   and the detail is kept, but the early structure glitches (see above). The
+   late-only variant (row `S`, `gap_local_start` 0.25-0.40) leaves the first
+   steps untouched; the tuned preset applies that ramp with the global
+   projection on top (row `T`).
 2. **Plain at 6 MP** (no guidance at all). The author reports it is "decent" but
    still on the over-burned side; if it burns too, the model itself is
    over-contrast at that size and the local gate is the only thing that can

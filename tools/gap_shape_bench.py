@@ -1,6 +1,6 @@
 """Real model: does guidance-gap shaping fix the high-resolution burn?
 
-Renders the matrix from docs/EXPERIMENT_GAP_SHAPING.md on a real checkpoint at a
+Renders the matrix from docs/GAP_SHAPING.md on a real checkpoint at a
 chosen resolution, saves the images and prints reference-free metrics plus the
 per-step cond/uncond gap.
 
@@ -16,7 +16,7 @@ installs the hook prints them.
     # 6 MP: the case that burns.  Slow: cfg_pp at cfg 1 doubles the batch.
     & "$env:COMFY_DIR\\venv\\Scripts\\python.exe" tools\\gap_shape_bench.py --res 2048x2944 --arms probe,cfgpp,hf,cap,hf_cap
 
-Arms (docs/EXPERIMENT_GAP_SHAPING.md says what each one answers):
+Arms (docs/GAP_SHAPING.md says what each one answers):
     plain    no guidance at all                   (baseline artifacts)
     probe    gap_stats only, image unchanged      (is the gap different at 6 MP?)
     cfgpp    CFG++ strength 1.0                   (the burn)

@@ -97,7 +97,7 @@ _KNOB_SPECS = {
                 "px_order on (the old eye-tuned combination, kept as a lab row); "
                 "N: gap HF (5%) = gap_lf 0.05; O: gap cap 0.2 = gap_cap 0.2; "
                 "P: gap HF + cap = both; Q: gap probe (no shaping) = gap_stats on "
-                "(experimental guidance-gap shaping, docs/EXPERIMENT_GAP_SHAPING.md); "
+                "(guidance-gap shaping, docs/GAP_SHAPING.md); "
                 "R: gap local APG (0.6) = cfg_pp on, strength 1.0, gap_parallel_local 0.6; "
                 "S: gap local APG late (0.6 from 30%) = as R, with gap_local_start 0.3; "
                 "T: author (0.6/0.6 from 30%) = cfg_pp 1.0, gap_parallel 0.6, "
@@ -120,10 +120,10 @@ _KNOB_SPECS = {
                 "omni_hybrid = the measured defaults; "
                 "omni_hybrid_sde = the same with mid-trajectory SDE noise (eta 0.5); "
                 "omni_hybrid_cfg_pp = CFG++ guidance at the shipped strength 0.5; "
-                "omni_hybrid_gap = CFG++ at strength 1.0 plus the contrast relief "
-                "that fixes the 6 MP Krea2 burn (gap_parallel 0.6, "
-                "gap_parallel_local 0.6, gap_local_start 0.3; judged harmless at "
-                "1.4 MP and on MOSS -- docs/EXPERIMENT_GAP_SHAPING.md). "
+                "omni_hybrid_gap = the high-resolution preset: CFG++ at strength "
+                "1.0 plus contrast relief (gap_parallel 0.6, gap_parallel_local "
+                "0.6, gap_local_start 0.3; tuned by eye at 1.4 and 6 MP and on "
+                "MOSS -- docs/GAP_SHAPING.md). "
                 "The config output prints every non-default setting."
             ),
         },
@@ -513,7 +513,7 @@ _KNOB_SPECS = {
             "step": 0.01,
             "round": False,
             "tooltip": (
-                "Experimental: guidance-gap shaping. Removes the low-frequency "
+                "Guidance-gap shaping. Removes the low-frequency "
                 "band of the guidance delta (conditional minus unconditional "
                 "prediction) so the step's tone comes from the unconditional "
                 "prediction and its structure from the conditional one. The value "
@@ -523,9 +523,9 @@ _KNOB_SPECS = {
                 "resolution). Works on eps and flow models, for plain cfg > 1, "
                 "cfg = 1 with gap_stats, and CFG++; costs no extra model call, but "
                 "at cfg = 1 it forces the unconditional pass, so the model batch "
-                "doubles (2x time; free at cfg > 1). 0 is bit-identical to the "
-                "release. Unmeasured: test it, do not assume it helps. See "
-                "docs/EXPERIMENT_GAP_SHAPING.md."
+                "doubles (2x time; free at cfg > 1). 0 is bit-identical to plain "
+                "sampling. Not in the tuned preset: test it before relying on it. See "
+                "docs/GAP_SHAPING.md."
             ),
         },
     ),
@@ -555,7 +555,7 @@ _KNOB_SPECS = {
             "step": 0.01,
             "round": False,
             "tooltip": (
-                "Experimental: cap the per-pixel guidance delta at this multiple "
+                "Cap the per-pixel guidance delta at this multiple "
                 "of the local unconditional prediction (0 = off). Direction is "
                 "preserved, only the overshoot is bounded, so it engages exactly "
                 "where the conditional prediction has run away from the prior -- "
@@ -575,7 +575,7 @@ _KNOB_SPECS = {
             "step": 0.05,
             "round": False,
             "tooltip": (
-                "Experimental: keep this fraction of the delta's component along "
+                "Keep this fraction of the delta's component along "
                 "the conditional prediction, i.e. the part that scales it up or "
                 "down (contrast/exposure). 1 = unchanged (default), 0 = APG-style "
                 "projection that keeps only the prompt-specific orthogonal part. "
@@ -593,7 +593,7 @@ _KNOB_SPECS = {
             "step": 0.05,
             "round": False,
             "tooltip": (
-                "Experimental: local version of gap_parallel. Removes up to this "
+                "Local version of gap_parallel. Removes up to this "
                 "fraction of the contrast component of the guidance, but only in "
                 "the pixels pushing hardest: the reference is the 90th percentile "
                 "of that step's own per-pixel contrast push (delta . cond / "
@@ -605,7 +605,7 @@ _KNOB_SPECS = {
                 "unconditional pass, so the model batch doubles (2x time; measured "
                 "with tools/cfgpp_cost.py). Free at cfg > 1, and free on top of "
                 "CFG++, which already pays it. Borrowed from PD-AOS's "
-                "local-field normalisation; unmeasured on a real model."
+                "local-field normalisation; judged by eye at 6 MP."
             ),
         },
     ),
@@ -633,7 +633,7 @@ _KNOB_SPECS = {
         {
             "default": DEFAULTS["gap_stats"],
             "tooltip": (
-                "Experimental: measure without changing anything. Records the "
+                "Measure without changing anything. Records the "
                 "cond/uncond gap per step (rms ratio, low-frequency share, "
                 "parallel share) and prints the means in the config string; the "
                 "image is bit-identical. At cfg = 1 this forces the unconditional "
@@ -716,7 +716,7 @@ _V151_SELECT_ORDER = [
 ]
 _SELECT_ORDER = _V151_SELECT_ORDER + [
     "churn_mode", "skip_every", "skip_order", "variant", "corrector_cfgpp",
-    # Experimental guidance-gap shaping (docs/EXPERIMENT_GAP_SHAPING.md).
+    # Guidance-gap shaping (docs/GAP_SHAPING.md).
     # Appended last so every saved workflow keeps its positional values.
     "gap_lf", "gap_lf_keep", "gap_cap", "gap_parallel", "gap_parallel_local",
     "gap_local_start", "gap_stats",
@@ -953,7 +953,7 @@ class OmniKSampler:
             if omni_core.LAST_STATS.get("churn_capped"):
                 churn += f" ({omni_core.LAST_STATS['churn_capped']} capped)"
         # Gap shaping: report what the hook saw, not only what was asked for. The
-        # means are the measurement the experiment is built on (they are what a
+        # means are the measurement the knobs are tuned on (they are what a
         # 1024 and a 2048 run are compared with), and `reason` says why a run did
         # not measure anything.
         gap = ""

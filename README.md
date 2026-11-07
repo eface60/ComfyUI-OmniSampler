@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-2ea44f)](https://github.com/comfyanonymous/ComfyUI)
-[![Latest tag](https://img.shields.io/badge/tag-v1.5.5-informational)](CHANGELOG.md)
+[![Latest tag](https://img.shields.io/badge/tag-v1.6.0-informational)](CHANGELOG.md)
 
 One diffusion sampler for ComfyUI that works correctly on **both** kinds of model
 it can run: the older epsilon-prediction models (SDXL and friends) and the
@@ -13,7 +13,7 @@ fixes the step size that `dpmpp_2m`, `ipndm`, `res_multistep` and friends comput
 for epsilon models only — a mismatch that costs them accuracy on flow models.
 
 It installs as a normal custom node: four extra names in the stock sampler
-dropdowns (three measured settings plus the experimental `omni_hybrid_gap`), plus
+dropdowns (three measured settings plus the tuned `omni_hybrid_gap`), plus
 three nodes if you want control over every knob. Every default is backed by a
 measurement, and the scripts that produced them ship with the repo.
 
@@ -41,7 +41,7 @@ four names where you would normally choose `dpmpp_2m`:
 | **`omni_hybrid`** | the measured defaults: deterministic, second order, one extra evaluation on the first step | start here |
 | `omni_hybrid_sde` | the same integrator with SDE noise in the middle of the trajectory (`eta=0.5`) | when you want more variation between seeds |
 | `omni_hybrid_cfg_pp` | CFG++ guidance: the unconditional prediction becomes the noise estimate | normal-cfg models (cfg > 1), not distilled cfg-1 checkpoints |
-| `omni_hybrid_gap` | **experiment branch only**: CFG++ 1.0 with the contrast component at 60% and the hot tail flattened after 30% of the steps (`gap_parallel 0.6`, `gap_parallel_local 0.6`, `gap_local_start 0.3`) | the 6 MP Krea2 burn ([the experiment](docs/EXPERIMENT_GAP_SHAPING.md)); near-neutral to the eye at 1.4 MP and on MOSS, at the cost of ~27% high-frequency energy at 1.4 MP, not part of a release, and not a demonstrated fix |
+| `omni_hybrid_gap` | the high-resolution preset: CFG++ 1.0 with the contrast component at 60% and the hot tail flattened after 30% of the steps (`gap_parallel 0.6`, `gap_parallel_local 0.6`, `gap_local_start 0.3`) | high-contrast checkpoints that burn at 6 MP ([the guidance-gap notes](docs/GAP_SHAPING.md)); tuned by eye at 1.4 and 6 MP and on MOSS, near-neutral where there is no burn, at the cost of ~27% high-frequency energy at 1.4 MP |
 
 Steps, cfg, scheduler and denoise work exactly as they did before; the sampler
 only replaces the step update.
