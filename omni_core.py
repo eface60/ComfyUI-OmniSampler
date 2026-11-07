@@ -30,7 +30,7 @@ Components and origin
 * exact flow-matching step (alpha != 1)        -> fixes dpmpp_2m's eps-only h
 * variable-step x0 averaging                   -> dpmpp_2m / res_multistep
 * eta-gated SDE with the exponential update    -> dpmpp_2m_sde drift + sa_solver tau gate
-* Brownian-tree correlated noise               -> dpmpp_sde / dpmpp_2m_sde
+* Brownian-tree noise (same draw as white)    -> dpmpp_sde / dpmpp_2m_sde
 * CFG++ (unconditional prediction as noise)    -> euler_cfg_pp / res_multistep_cfg_pp
 * trapezoidal corrector on selected steps      -> heun / sa_solver (PECE)
 * churn at high sigma                          -> euler / heun (Karras)
@@ -809,7 +809,7 @@ def sample_omni(
     churn_window=(0.0, 1.0),
     s_tmin=0.0,
     s_tmax=float("inf"),
-    noise_mode="brownian",
+    noise_mode="white",
     cfg_pp=False,
     cfg_pp_strength=0.5,
     corrector="first",
@@ -1125,8 +1125,18 @@ def sample_omni(
             if seed < 0:
                 seed = seed % (2 ** 63)
         if noise_mode == "brownian" and positive and min(positive) > 0.0:
+            # torchsde answers a query on the device its tree was built on, and
+            # comfy builds it on the CPU.  That costs 75 ms per step at 1024 px
+            # and 300 ms at 2048 px: the dyadic bridge runs on the CPU and the
+            # whole field crosses PCIe every step.  Built on the latent's device
+            # it is 3-5 ms/step, paid for with ~50 MB of VRAM per MP of latent
+            # (the tree caches recent intervals).  tools/noise_cost.py measures
+            # both, with no checkpoint loaded.
             try:
-                noise_sampler = BrownianTreeNoiseSampler(x, min(positive), max(positive), seed=seed, cpu=True)
+                noise_sampler = BrownianTreeNoiseSampler(
+                    x, min(positive), max(positive), seed=seed,
+                    cpu=(x.device.type != "cuda"),
+                )
             except Exception as exc:  # degenerate interval, bad seed, ...
                 print(f"[omni_hybrid] brownian tree unavailable ({exc}); falling back to white noise")
                 noise_sampler = default_noise_sampler(x, seed=seed)
@@ -1540,6 +1550,12 @@ def sample_omni(
     return x
 
 
+# Defaults for sample_omni and for every node's widgets.  noise_mode is "white":
+# the SDE asks for one N(0, 1) field per step and queries each step interval once,
+# so a Brownian path's disjoint increments are independent anyway.  Both modes
+# measure identical (std 1.000, cross-step correlation 0.00, tools/noise_cost.py
+# --check) and the tree costs 75-300 ms per step more; its one remaining property,
+# a seed that pins W(sigma) across step counts, is opt-in.
 DEFAULTS = dict(
     order=2,
     integrator="exp",
@@ -1553,7 +1569,7 @@ DEFAULTS = dict(
     churn_window=(0.0, 1.0),
     s_tmin=0.0,
     s_tmax=float("inf"),
-    noise_mode="brownian",
+    noise_mode="white",
     cfg_pp=False,
     cfg_pp_strength=0.5,
     corrector="first",

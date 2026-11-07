@@ -104,6 +104,41 @@ number behind it; the scripts that produce those numbers are in `tools/`.
 
 ### Fixed
 
+* **The KSampler now says when a gap knob doubles the batch.**
+  `gap_parallel_local` enables the guidance-gap hook, which needs the
+  unconditional prediction; at `cfg = 1` that disables ComfyUI's cfg1 shortcut
+  and doubles the model batch. The sampler did this correctly, but the node's
+  `gap_on` test -- the one that prints `| gap batch x2 (cfg=1 uncond pass
+  forced)` -- omitted `gap_parallel_local`, so the most common way to turn
+  shaping on was the one case that stayed silent. The four shaping knobs'
+  tooltips now state the cost too. Measured on Krea2 turbo @1024, 10 steps, cfg 1
+  (`tools/cfgpp_cost.py`, which now times the gap arms): **8.57 s -> 17.51 s
+  (2.0x)** at the same 10 `calc_cond_batch` calls, with the model batch going
+  10 -> 20. The per-pixel gate itself is 0.02 s for the whole run; the cost is
+  already paid with CFG++ on (17.49 -> 17.33 s), and free at `cfg > 1` (17.35 ->
+  17.74 s). On a distilled cfg-1 model it is inherent, not a bug: shaping
+  `cond - uncond` needs `uncond`.
+
+* **`eta > 0` no longer costs 75-300 ms per step.** The SDE asks for one N(0,1)
+  field per step. The shipped default took it from torchsde's Brownian tree, and
+  comfy builds that tree on the CPU, so every step ran the dyadic bridge on the
+  CPU and moved the whole field over PCIe. `tools/noise_cost.py` (no checkpoint
+  loaded, so no cache or warm-up to hide behind) measures **72 / 166 / 297 ms per
+  step at 1024 / 1536 / 2048 px** -- +0.72 / +1.66 / +2.97 s on a 10-step run.
+  Two changes:
+  * `noise_mode` now defaults to `white`. The sampler queries each step interval
+    exactly once and the intervals are disjoint, so a Brownian path's increments
+    are independent anyway: `--check` pools 400 seeds per mode and measures std
+    1.000 and cross-step correlation 0.00 for both. The old default was paying
+    0.3 s per step for a different *realisation* of the same distribution. Output
+    at `eta > 0` changes (new realisation, not a new distribution); `eta = 0` is
+    untouched.
+  * `noise_mode=brownian` now builds its tree on the latent's device on a GPU:
+    **3-5 ms per step** instead of 75-300, paid for with ~50 MB of VRAM per MP of
+    latent (48-53 MB measured at 1024 px, 192-208 MB at 2048, across runs). Saved
+    workflows that name `brownian` get this without touching the widget. `eta = 0` still builds no
+    noise sampler at all (`tools/test_eta_seed.py`).
+
 * **Flow-model churn re-noised without rescaling x0.** Churn moved the state to
   `sigma_hat` with k-diffusion's additive
   `x + sqrt(sigma_hat^2 - sigma_s^2) z`, which is the exact forward step only
@@ -265,11 +300,14 @@ number behind it; the scripts that produce those numbers are in `tools/`.
   `gap_shape_check.py` runs the neutral/ON contract on eps. Tolerance gates were
   tightened to ~2-3x the measured values (`euler_cfg_pp` 1e-3 -> 2e-6 at
   cfg <= 4, no-op 1e-5 -> 1e-6, KSampler end-to-end 12% -> 8%, ODE identity
-  2e-3 -> 3e-4, SDE marginal 5% -> 2.5%). All ten model-free checks pass.
+  2e-3 -> 3e-4, SDE marginal 5% -> 2.5%). All eleven model-free checks pass (the
+   eleventh, `noise_cost.py --check`, came with the noise fix above).
 
-The default build is behaviorally unchanged: `corrector_cfgpp` is off, `order`
-defaults to 2, churn defaults to 0 and `final_extrapolate` to 0. The only
-default-path difference is that `order=3/4` no longer pretends to run.
+The default build changes in one place: `noise_mode` is now `white`, so an
+`eta > 0` run draws a different realisation of the same distribution. Otherwise
+it is behaviorally unchanged: `corrector_cfgpp` is off, `order` defaults to 2,
+churn defaults to 0 and `final_extrapolate` to 0. The only other default-path
+difference is that `order=3/4` no longer pretends to run.
 
 ## v1.5.5 — 2026-11-01
 

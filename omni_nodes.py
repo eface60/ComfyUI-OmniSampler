@@ -363,11 +363,16 @@ _KNOB_SPECS = {
         {
             "default": DEFAULTS["noise_mode"],
             "tooltip": (
-                "Noise used by the SDE when eta > 0: brownian = Brownian-tree "
-                "time-correlated noise (dpmpp_sde style); white = independent "
-                "Gaussian noise each step (cheaper). Falls back to white if the "
-                "Brownian tree cannot be built, e.g. when the schedule has no "
-                "positive sigma span. Ignored when eta = 0."
+                "Noise used by the SDE when eta > 0. Both choices draw one N(0,1) "
+                "field per step and are independent across steps (measured: "
+                "tools/noise_cost.py --check), so this is not a quality choice. "
+                "white = plain randn, no measurable cost. brownian = the same draw "
+                "taken from one Brownian path per seed, so the seed pins W(sigma) "
+                "whatever the step count; it costs ~4 ms/step and ~50 MB of VRAM "
+                "per MP of latent (the tree runs on the GPU; on the CPU it was "
+                "75-300 ms/step, which is why white is the default). Falls back to "
+                "white if the Brownian tree cannot be built, e.g. when the "
+                "schedule has no positive sigma span. Ignored when eta = 0."
             ),
         },
     ),
@@ -516,9 +521,11 @@ _KNOB_SPECS = {
                 "off, 0.05 removes everything coarser than about 5% of the image "
                 "(24 px at 1024, 100 px at 2048 -- the same look at any "
                 "resolution). Works on eps and flow models, for plain cfg > 1, "
-                "cfg = 1 with gap_stats, and CFG++; costs no extra model call. 0 is "
-                "bit-identical to the release. Unmeasured: test it, do not assume "
-                "it helps. See docs/EXPERIMENT_GAP_SHAPING.md."
+                "cfg = 1 with gap_stats, and CFG++; costs no extra model call, but "
+                "at cfg = 1 it forces the unconditional pass, so the model batch "
+                "doubles (2x time; free at cfg > 1). 0 is bit-identical to the "
+                "release. Unmeasured: test it, do not assume it helps. See "
+                "docs/EXPERIMENT_GAP_SHAPING.md."
             ),
         },
     ),
@@ -553,7 +560,9 @@ _KNOB_SPECS = {
                 "preserved, only the overshoot is bounded, so it engages exactly "
                 "where the conditional prediction has run away from the prior -- "
                 "which is what out-of-training resolutions do to the cond/uncond "
-                "gap. 0.1-0.3 is the range worth testing; 0 is bit-identical."
+                "gap. 0.1-0.3 is the range worth testing; 0 is bit-identical. At "
+                "cfg = 1 this forces the unconditional pass, so the model batch "
+                "doubles (2x time; free at cfg > 1)."
             ),
         },
     ),
@@ -570,7 +579,8 @@ _KNOB_SPECS = {
                 "the conditional prediction, i.e. the part that scales it up or "
                 "down (contrast/exposure). 1 = unchanged (default), 0 = APG-style "
                 "projection that keeps only the prompt-specific orthogonal part. "
-                "Needs a conditional prediction. 1 is bit-identical."
+                "Needs a conditional prediction, which at cfg = 1 costs the "
+                "unconditional pass (2x batch); free at cfg > 1. 1 is bit-identical."
             ),
         },
     ),
@@ -591,7 +601,10 @@ _KNOB_SPECS = {
                 "everything under it is left untouched -- no absolute threshold, "
                 "and the same value behaves the same at 1024 and 2048. 0 = off "
                 "(identical to gap_parallel), 0.6 = strong relief on the hot tail. "
-                "Needs a conditional prediction. Borrowed from PD-AOS's "
+                "Needs a conditional prediction: at cfg = 1 that forces the "
+                "unconditional pass, so the model batch doubles (2x time; measured "
+                "with tools/cfgpp_cost.py). Free at cfg > 1, and free on top of "
+                "CFG++, which already pays it. Borrowed from PD-AOS's "
                 "local-field normalisation; unmeasured on a real model."
             ),
         },
@@ -964,6 +977,8 @@ class OmniKSampler:
                    and float(opts.get("gap_lf_keep", DEFAULTS["gap_lf_keep"])) < 1.0)
                   or float(opts.get("gap_cap", DEFAULTS["gap_cap"])) > 0.0
                   or float(opts.get("gap_parallel", DEFAULTS["gap_parallel"])) < 1.0
+                  or float(opts.get("gap_parallel_local",
+                                    DEFAULTS["gap_parallel_local"])) > 0.0
                   or bool(opts.get("gap_stats", DEFAULTS["gap_stats"])))
         if gap_on and cfg <= 1.0 and not opts.get("cfg_pp"):
             gap += " | gap batch x2 (cfg=1 uncond pass forced)"

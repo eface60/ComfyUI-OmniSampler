@@ -61,7 +61,8 @@ $env:COMFY_DIR = "C:\path\to\ComfyUI"
 | [`nfe_audit.py`](nfe_audit.py) | real model evaluations and wall time per variant |
 | [`time_breakdown.py`](time_breakdown.py) | model evaluations vs sampler overhead |
 | [`time_coldwarm.py`](time_coldwarm.py) | cold vs warm vs previews, to separate load time from sampling time |
-| [`cfgpp_cost.py`](cfgpp_cost.py) | the cost of CFG++ at cfg=1 vs cfg>1 |
+| [`noise_cost.py`](noise_cost.py) | the `eta` noise draw alone, with no checkpoint loaded: ms/step and VRAM for `white`, the CPU Brownian tree and the GPU one, at 1-4 MP. `--check` pools 400 seeds per mode and asserts mean 0, std 1, cross-step correlation 0 -- i.e. that the two modes are the same distribution |
+| [`cfgpp_cost.py`](cfgpp_cost.py) | the cost of needing the unconditional prediction (CFG++ and the gap features) at cfg=1 vs cfg>1, with the model batch counted per forward |
 | [`cfgpp_forwards.py`](cfgpp_forwards.py) | whether CFG++ runs the unconditional pass twice at cfg>1 |
 | [`cfgpp_repeat.py`](cfgpp_repeat.py) | interleaved repeats, medians - the timing noise the single-shot numbers hid |
 | [`ppm_gamma_check.py`](ppm_gamma_check.py) | comfyui-ppm's `euler_gamma` (and its CFG++ branch) against omni |

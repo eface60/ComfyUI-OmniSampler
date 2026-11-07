@@ -287,7 +287,7 @@ general sampler; Omni leaves it alone.
 | Adams-Bashforth in sigma, order 1-4 | ipndm / deis | optional `integrator="ab"`; reproduces ipndm exactly on uniform schedules |
 | step-ratio + large-step guard | new (motivated by dpmpp_3m_sde failures) | 0.44 -> 0.10 on eps/uniform |
 | gated SDE with exponential drift | dpmpp_2m_sde + sa_solver tau gate | noise where it helps, none where it hurts |
-| Brownian-tree correlated noise | dpmpp_sde | temporally coherent noise |
+| Brownian path per seed | dpmpp_sde | the same per-step N(0,1) draw as white noise; only the seed/w step-count mapping differs (measured: `tools/noise_cost.py --check`) |
 | CFG++ uncond-as-noise | euler_cfg_pp, res_multistep_cfg_pp | less guidance saturation |
 | trapezoidal corrector on step 0 | heun / sa_solver PECE | 20% error reduction for +1 NFE |
 | order reduction on the last real step | sa_solver | guards the huge-h tail |

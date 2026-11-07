@@ -395,7 +395,14 @@ KSampler workflow.
 
 * Any gap feature at `cfg = 1` forces the unconditional pass, so the model batch
   doubles per step -- the same cost CFG++ already pays at cfg 1. At `cfg > 1` it
-  is free.
+  is free. Measured on Krea2 turbo @1024, 10 steps, cfg 1 (`tools/cfgpp_cost.py`):
+  **8.57 s -> 17.51 s** with `gap_parallel_local 0.6` (2.0x) at the *same* 10
+  `calc_cond_batch` calls, with the model batch going 10 -> 20. The per-pixel gate
+  itself costs 0.02 s for the whole run, so on a distilled cfg-1 model the hook is
+  not what you are paying for: shaping `cond - uncond` needs `uncond`, and the
+  distilled model's shortcut exists precisely to skip it. Free on top of CFG++
+  (17.49 s -> 17.33 s with the gate added) and free at `cfg > 1` (17.35 s vs
+  17.74 s).
 * The sweep is three checkpoints, one prompt, one seed (a second seed moved
   krea2's mean by 1%), 12 steps (8/12/20 gave 0.553/0.513/0.474 on krea2), one
   scheduler, and square sizes plus one aspect. "Universal" here means "the same

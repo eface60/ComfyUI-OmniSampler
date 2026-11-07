@@ -63,7 +63,7 @@ win; see the [spatial section](#optional-spatial-controls-v15-off-by-default).
 | `s_churn` | 0.0 | churn: re-noise the state before the model call (forces `exp` with `ab`) |
 | `churn_mode` | `karras` | `karras` = relative law (euler/heun); `gamma` = comfyui-ppm's euler_gamma law |
 | `churn_window` | `0,1` | step fractions where churn may fire (`0` = first step, `1` = last), comma or semicolon separated; a fraction rather than a sigma range because eps (0-14.6) and flow (0-1) do not share a sigma scale. Only used when `s_churn > 0` |
-| `noise_mode` | `brownian` | Brownian-tree correlated noise or white noise (only when `eta > 0`) |
+| `noise_mode` | `white` | only used when `eta > 0`. Both values draw one N(0,1) field per step, independent across steps (`tools/noise_cost.py --check`), so this is not a quality choice: `brownian` keeps one path per seed (a seed pins W(sigma) across step counts) and costs ~4 ms/step + ~50 MB VRAM per MP; `white` is a plain draw at no measurable cost. The tree used to run on the CPU and cost 75-300 ms/step, which is why `white` is the default |
 | `corrector` | `first` | trapezoidal corrector on none/first/last/first_last steps (+1 NFE each); `auto` = first for eps, none for flow (heuristic); skipped by `ab` and (by default) with CFG++ |
 | `corrector_cfgpp` | false | run the corrector under CFG++ too, averaging `u` as well as `x0` so `cond == uncond` stays a no-op; +1 NFE (2x batch at cfg = 1) |
 | `lower_order_to_end` | 1 | first order for the last N real steps |
